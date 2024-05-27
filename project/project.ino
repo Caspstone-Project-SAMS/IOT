@@ -290,6 +290,11 @@ String getFingerprintTemplate(int i) {
   index += 256;       // advance pointer
   memcpy(fingerTemplate + index, bytesReceived + uindx, 256);   // second 256 bytes
 
+  for(int i = 0; i < 512; i++)
+  {
+    Serial.print(fingerTemplate[i]); Serial.print(" ");
+  }
+
   // Fingerprint template is presented in Hexa format
   String fingerprintTemplate = "";
   for (int i = 0; i < 512; ++i) {
@@ -299,6 +304,7 @@ String getFingerprintTemplate(int i) {
     sprintf(tmp, format, fingerTemplate[i]);
     fingerprintTemplate.concat(tmp);
   }
+  Serial.println();
   Serial.print("Get template: " ); Serial.println(fingerprintTemplate);
   return fingerprintTemplate;
 }

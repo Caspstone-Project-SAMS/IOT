@@ -6,8 +6,8 @@
 
 ESP8266WiFiMulti WifiMulti;
 
-const char* ssid = "FPTU_Student";
-const char* password = "12345678";
+const char* ssid = "Nhim";
+const char* password = "1357924680";
 
 void setup() {
   Serial.begin(9600);
