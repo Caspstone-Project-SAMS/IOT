@@ -1,8 +1,25 @@
+//C:\Users\....\AppData\Local\Arduino15\packages\esp8266\hardware\esp8266\3.1.2\libraries\ESP8266HTTPClient\src
+#include <RTClib.h>
+
 #include <Adafruit_Fingerprint.h>
 #include <ESP8266WiFi.h>
 #include <ESP8266HTTPClient.h>
 #include <Arduino_JSON.h>
 #include <string>
+
+#include <WiFiUdp.h>
+#include <NTPClient.h>               
+#include <TimeLib.h>
+#include <map>
+
+std::map<int, int> FingerMap;
+
+class FingerData {
+  public:
+    int id;
+    std::string fingerprintTemplate;
+    int fingerId;
+};
 
 #define SERVER_IP "35.221.168.89"
 
@@ -17,12 +34,17 @@ SoftwareSerial mySerial(Finger_Rx, Finger_Tx);
 int template_buf_size = 512;
 Adafruit_Fingerprint finger = Adafruit_Fingerprint(&mySerial);
 
-class FingerData {
-  public:
-    int id;
-    std::string fingerprintTemplate;
-    int fingerId;
-};
+WiFiUDP ntpUDP;
+NTPClient timeClient(ntpUDP, "asia.pool.ntp.org", 25200, 60000);
+char Time[] = "TIME:00:00:00";
+char Date[] = "DATE:00/00/2000";
+char CDateTime[] = "0000-00-00T00:00:00";
+byte last_second, second_, minute_, hour_, day_, month_;
+int year_;
+
+RTC_DS1307 rtc;
+
+bool haveRTC = false;
 
 void setup() {
   Serial.begin(9600);
@@ -62,9 +84,70 @@ void setup() {
     Serial.print(".");
   }
   Serial.print("Connected! IP address: "); Serial.println(WiFi.localIP());
+
+
+  // Connect to ntp server;
+  timeClient.begin();
+
+  // Connect to DS1307 (RTC object)
+  bool connectToRTC = false;
+  while(!connectToRTC){
+    if(!rtc.begin()) {
+      Serial.println("Couldn't find RTC");
+      Serial.println("Do you want to reconnect RTC");
+      Serial.println("'Y' to yes, others to no");
+      while(1){
+        if(Serial.available()){
+          if(Serial.read() == 'Y'){
+            break;
+          }
+          else{
+            connectToRTC = true;
+            break;
+          }
+        }
+      }
+    }
+    else{
+      connectToRTC = true;
+      haveRTC = true;
+    }
+  }
+
+  // Get Time from server
+  Serial.println("\nGet Time from server!");
+  Serial.println("Update time");
+  updateDateTime();
+  Serial.println(Time);
+  Serial.println(Date);
+  if(haveRTC){
+    rtc.adjust(DateTime(year_, month_, day_, hour_, minute_, second_));
+  }
 }
 
 void loop() {
+  Serial.println("\n\nUpdate Time again!");
+  Serial.println("Press 'Y' key to Update, other keys to Cancel");
+  while(1) {
+    if(Serial.available())
+    {
+      if(Serial.read() == 'Y')
+      {
+        updateDateTime();
+        Serial.println(Time);
+        Serial.println(Date);
+        if(haveRTC){
+          rtc.adjust(DateTime(year_, month_, day_, hour_, minute_, second_));
+        }
+        break;
+      }
+      else
+      {
+        break;
+      }
+    }
+  }
+
   Serial.println("\n\nReady to download fingerprint!");
   Serial.println("Press 'Y' key to continue");
   while(1) {
@@ -176,6 +259,7 @@ void loop() {
           if (finger.storeModel(i+1) == FINGERPRINT_OK) { //saving the template against the ID you entered or manually set
             Serial.print("Successfully stored against ID#");Serial.println(i);
             fingerDatas[i].fingerId = i+1;
+            FingerMap[i+1] = fingerDatas[i].id;
           } else {
             Serial.println("Storing error");
             return ;
@@ -192,7 +276,38 @@ void loop() {
   // Scan fingerprint
   Serial.println("Ready to scan fingerprint");
   while(1){
-    getFingerprintIDez();
+    int fingerId = getFingerprintIDez();
+    if(fingerId > 0)
+    {
+      Serial.print("Attending fingerprint #"); Serial.println(fingerId);
+      auto it = FingerMap.find(fingerId);
+      int id = it->second;
+      Serial.println(id);
+      Serial.println(WiFi.status());
+
+      updateDS1307DateTime();
+
+      if(WiFi.status() == WL_CONNECTED){
+        WiFiClient client;
+        HTTPClient http;
+
+        const std::string url = std::string("http://") + SERVER_IP + "/api/Hello/attendance/" + std::to_string(id) + "?dateTime=" + CDateTime;
+        Serial.println(url.c_str());
+        delay(5000);
+        http.begin(client, url.c_str()); 
+        int httpCode = http.PUT("");
+        Serial.println(httpCode);
+        if(httpCode > 0){
+          if (httpCode == HTTP_CODE_OK) {
+            String payload = http.getString();
+            Serial.println("Attendance successfully: " + payload);
+          }
+        }
+        else{
+          Serial.printf("[HTTP] PUT... failed, error: %s\n", http.errorToString(httpCode).c_str());
+        }
+      }
+    }
     delay(50);
     Serial.print(".");
   }
@@ -228,4 +343,88 @@ int getFingerprintIDez() {
   Serial.print("\nFound ID #"); Serial.print(finger.fingerID);
   Serial.print(" with confidence of "); Serial.println(finger.confidence);
   return finger.fingerID;
+}
+
+void updateDateTime() {
+  timeClient.update();
+  unsigned long unix_epoch = timeClient.getEpochTime();    // Get Unix epoch time from the NTP server
+  second_ = second(unix_epoch);
+  if(last_second != second_){
+    minute_ = minute(unix_epoch);
+    hour_   = hour(unix_epoch);
+    day_    = day(unix_epoch);
+    month_  = month(unix_epoch);
+    year_   = year(unix_epoch);
+
+    Time[12] = second_ % 10 + 48;
+    Time[11] = second_ / 10 + 48;
+    Time[9]  = minute_ % 10 + 48;
+    Time[8]  = minute_ / 10 + 48;
+    Time[6]  = hour_   % 10 + 48;
+    Time[5]  = hour_   / 10 + 48;
+
+    Date[5]  = day_   / 10 + 48;
+    Date[6]  = day_   % 10 + 48;
+    Date[8]  = month_  / 10 + 48;
+    Date[9]  = month_  % 10 + 48;
+    Date[13] = (year_   / 10) % 10 + 48;
+    Date[14] = year_   % 10 % 10 + 48;
+
+    CDateTime[0] = (year_ / 10 / 10 / 10) % 10 + 48;
+    CDateTime[1] = (year_ / 10 / 10) % 10 + 48;
+    CDateTime[2] = (year_ / 10) % 10 + 48;
+    CDateTime[3] = year_ % 10 % 10 + 48;
+    CDateTime[5] = month_  / 10 + 48;
+    CDateTime[6] = month_  % 10 + 48;
+    CDateTime[8] = day_  / 10 + 48;
+    CDateTime[9] = day_  % 10 + 48;
+    CDateTime[11] = hour_  / 10 + 48;
+    CDateTime[12] = hour_  % 10 + 48;
+    CDateTime[14] = minute_ / 10 + 48;
+    CDateTime[15] = minute_ % 10 + 48;
+    CDateTime[17] = second_ / 10 + 48;
+    CDateTime[18] = second_ % 10 + 48;
+
+    last_second = second_;
+  }
+}
+
+void updateDS1307DateTime(){
+  DateTime now = rtc.now();
+
+  second_ = now.second();
+  minute_ = now.minute();
+  hour_   = now.hour();
+  day_    = now.day();
+  month_  = now.month();
+  year_   = now.year();
+
+  Time[12] = second_ % 10 + 48;
+  Time[11] = second_ / 10 + 48;
+  Time[9]  = minute_ % 10 + 48;
+  Time[8]  = minute_ / 10 + 48;
+  Time[6]  = hour_   % 10 + 48;
+  Time[5]  = hour_   / 10 + 48;
+
+  Date[5]  = day_   / 10 + 48;
+  Date[6]  = day_   % 10 + 48;
+  Date[8]  = month_  / 10 + 48;
+  Date[9]  = month_  % 10 + 48;
+  Date[13] = (year_   / 10) % 10 + 48;
+  Date[14] = year_   % 10 % 10 + 48;
+
+  CDateTime[0] = (year_ / 10 / 10 / 10) % 10 + 48;
+  CDateTime[1] = (year_ / 10 / 10) % 10 + 48;
+  CDateTime[2] = (year_ / 10) % 10 + 48;
+  CDateTime[3] = year_ % 10 % 10 + 48;
+  CDateTime[5] = month_  / 10 + 48;
+  CDateTime[6] = month_  % 10 + 48;
+  CDateTime[8] = day_  / 10 + 48;
+  CDateTime[9] = day_  % 10 + 48;
+  CDateTime[11] = hour_  / 10 + 48;
+  CDateTime[12] = hour_  % 10 + 48;
+  CDateTime[14] = minute_ / 10 + 48;
+  CDateTime[15] = minute_ % 10 + 48;
+  CDateTime[17] = second_ / 10 + 48;
+  CDateTime[18] = second_ % 10 + 48;
 }
