@@ -5,6 +5,8 @@
 #define SERVER_IP "35.221.168.89"
 
 #ifndef STASSID
+// #define STASSID "FPTU_Student" //Nhim
+// #define STAPSK "12345678" //1357924680
 #define STASSID "Nhim"
 #define STAPSK "1357924680"
 #endif
@@ -64,9 +66,9 @@ void loop() {
     }
   }
 
-  while(! getFingerprintEnroll(1));
+  while(! getFingerprintEnroll());
   Serial.println("\n\n------------------------------------");
-  String fingerprintTemplate = getFingerprintTemplate(1);
+  String fingerprintTemplate = getFingerprintTemplate();
 
   // Wait for wifi conenction (check again)
   if((WiFi.status() == WL_CONNECTED) && fingerprintTemplate != "") {
@@ -98,12 +100,12 @@ void loop() {
 
   // Delete template from sensor
   // Deleting fingerprint from sensor
-  deleteFingerprint(1);
+  //deleteFingerprint(1);
 
   delay(3000);
 }
 
-uint8_t getFingerprintEnroll(int i) {
+uint8_t getFingerprintEnroll() {
   int p = -1;
   Serial.println("Waiting for valid finger to enroll");
   while (p != FINGERPRINT_OK) {
@@ -218,44 +220,48 @@ uint8_t getFingerprintEnroll(int i) {
     return p;
   }
 
-  p = finger.storeModel(i);
-  if (p == FINGERPRINT_OK) {
-    Serial.println("Stored!");
-  } else if (p == FINGERPRINT_PACKETRECIEVEERR) {
-    Serial.println("Communication error");
-    return p;
-  } else if (p == FINGERPRINT_BADLOCATION) {
-    Serial.println("Could not store in that location");
-    return p;
-  } else if (p == FINGERPRINT_FLASHERR) {
-    Serial.println("Error writing to flash");
-    return p;
-  } else {
-    Serial.println("Unknown error");
-    return p;
-  }
+  Serial.println("Created successfully");
+  delay(2000);
+
+  // p = finger.storeModel(i);
+  // if (p == FINGERPRINT_OK) {
+  //   Serial.println("Stored!");
+  // } else if (p == FINGERPRINT_PACKETRECIEVEERR) {
+  //   Serial.println("Communication error");
+  //   return p;
+  // } else if (p == FINGERPRINT_BADLOCATION) {
+  //   Serial.println("Could not store in that location");
+  //   return p;
+  // } else if (p == FINGERPRINT_FLASHERR) {
+  //   Serial.println("Error writing to flash");
+  //   return p;
+  // } else {
+  //   Serial.println("Unknown error");
+  //   return p;
+  // }
 
   return true;
 }
 
-String getFingerprintTemplate(int i) {
-  Serial.println("Attempting to load fingerprint template\n");
-  uint8_t p = finger.loadModel(i);
-  switch (p) {
-    case FINGERPRINT_OK:
-      Serial.print("Template "); Serial.println(" loaded");
-      break;
-    case FINGERPRINT_PACKETRECIEVEERR:
-      Serial.println("Communication error");
-      return "";
-    default:
-      Serial.print("Unknown error "); Serial.println(p);
-      return "";
-  }
+String getFingerprintTemplate() {
+
+  //Serial.println("Attempting to load fingerprint template\n");
+  // uint8_t p = finger.loadModel(i);
+  // switch (p) {
+  //   case FINGERPRINT_OK:
+  //     Serial.print("Template "); Serial.println(" loaded");
+  //     break;
+  //   case FINGERPRINT_PACKETRECIEVEERR:
+  //     Serial.println("Communication error");
+  //     return "";
+  //   default:
+  //     Serial.print("Unknown error "); Serial.println(p);
+  //     return "";
+  // }
 
   // OK success!
-  Serial.print("Attempting to get fingerprint template\n");
-  p = finger.getModel();
+  Serial.print("Attempting to get fingerprint template...\n");
+  uint8_t p = finger.getModel();
   switch (p) {
     case FINGERPRINT_OK:
       Serial.print("Template "); Serial.println(" transferring:");
@@ -265,12 +271,12 @@ String getFingerprintTemplate(int i) {
       return "";
   }
 
-  // one data packet is 267 bytes. in one data packet, 11 bytes are 'usesless' :D
-  uint8_t bytesReceived[534]; // 2 data packets
-  memset(bytesReceived, 0xff, 534);
+  // one data packet is 139 bytes. in one data packet, 11 bytes are 'usesless' :D
+  uint8_t bytesReceived[556]; // 4 data packets
+  memset(bytesReceived, 0xff, 556);
   uint32_t starttime = millis();
   int byteIndex = 0;
-  while (byteIndex < 534 && (millis() - starttime) < 20000) {
+  while (byteIndex < 556 && (millis() - starttime) < 5000) {
     if (mySerial.available()) {
       bytesReceived[byteIndex++] = mySerial.read();
     }
@@ -281,14 +287,25 @@ String getFingerprintTemplate(int i) {
   uint8_t fingerTemplate[512]; // the real template
   memset(fingerTemplate, 0xff, 512);
 
-  // filtering only the data packets
-  int uindx = 9, index = 0;
-  memcpy(fingerTemplate + index, bytesReceived + uindx, 256);   // first 256 bytes
-  uindx += 256;       // skip data
-  uindx += 2;         // skip checksum
-  uindx += 9;         // skip next header
-  index += 256;       // advance pointer
-  memcpy(fingerTemplate + index, bytesReceived + uindx, 256);   // second 256 bytes
+  for(int m=0;m<4;m++){ //filtering data packets
+    uint8_t stat=bytesReceived[(m*(128+11))+6];
+    if( stat!= FINGERPRINT_DATAPACKET && stat!= FINGERPRINT_ENDDATAPACKET){
+      Serial.println("Bad fingerprint_packet");
+      while(1){
+        delay(1);
+      }
+    }
+    memcpy(fingerTemplate + (m*128), bytesReceived + (m*(128+11))+9, 128); 
+  }
+
+  // // filtering only the data packets
+  // int uindx = 9, index = 0;
+  // memcpy(fingerTemplate + index, bytesReceived + uindx, 128);   // first 256 bytes
+  // uindx += 256;       // skip data
+  // uindx += 2;         // skip checksum
+  // uindx += 9;         // skip next header
+  // index += 256;       // advance pointer
+  // memcpy(fingerTemplate + index, bytesReceived + uindx, 256);   // second 256 bytes
 
   for(int i = 0; i < 512; i++)
   {
@@ -305,7 +322,7 @@ String getFingerprintTemplate(int i) {
     fingerprintTemplate.concat(tmp);
   }
   Serial.println();
-  Serial.print("Get template: " ); Serial.println(fingerprintTemplate);
+  Serial.print("Fingerprint template: " ); Serial.println(fingerprintTemplate);
   return fingerprintTemplate;
 }
 

@@ -1,4 +1,5 @@
 //C:\Users\....\AppData\Local\Arduino15\packages\esp8266\hardware\esp8266\3.1.2\libraries\ESP8266HTTPClient\src
+#include <LiquidCrystal_I2C.h>
 #include <RTClib.h>
 
 #include <Adafruit_Fingerprint.h>
@@ -12,15 +13,7 @@
 #include <TimeLib.h>
 #include <map>
 
-std::map<int, int> FingerMap;
-
-class FingerData {
-  public:
-    int id;
-    std::string fingerprintTemplate;
-    int fingerId;
-};
-
+//=========================Macro define=============================
 #define SERVER_IP "35.221.168.89"
 
 #ifndef STASSID
@@ -30,10 +23,30 @@ class FingerData {
 
 #define Finger_Rx 0 //D3 in ESP8266 is GPIO0
 #define Finger_Tx 2 //D4 is GPIO2
+//=====================================================================
+
+
+
+//===========================Class definition===========================
+class FingerData {
+  public:
+    int id;
+    std::string fingerprintTemplate;
+    int fingerId;
+};
+//=======================================================================
+
+
+
+//===========================Memory variables declaration here===========================
+std::map<int, int> FingerMap;
+
+// Fingerprint sensor
 SoftwareSerial mySerial(Finger_Rx, Finger_Tx);
 int template_buf_size = 512;
 Adafruit_Fingerprint finger = Adafruit_Fingerprint(&mySerial);
 
+// DateTime information, NTP client
 WiFiUDP ntpUDP;
 NTPClient timeClient(ntpUDP, "asia.pool.ntp.org", 25200, 60000);
 char Time[] = "TIME:00:00:00";
@@ -42,15 +55,24 @@ char CDateTime[] = "0000-00-00T00:00:00";
 byte last_second, second_, minute_, hour_, day_, month_;
 int year_;
 
+// DS1307 real-time
 RTC_DS1307 rtc;
-
 bool haveRTC = false;
 
-void setup() {
-  Serial.begin(9600);
-  delay(100);
-  
-  // Connect to R308 fingerprint sensor
+// LCD I2C
+int lcdColumns = 16;
+int lcdRows = 2;
+LiquidCrystal_I2C lcd(0x27, lcdColumns, lcdRows);
+
+//=======================================================================
+
+//========================Connecting==================================
+void conenctLCD() {
+  lcd.init();
+  lcd.backlight();
+}
+
+void connectFingerprintSensor() {
   Serial.println("\n\nAdafruit Fingerprint sensor enrollment");
   finger.begin(57600);
   if (finger.verifyPassword()) {
@@ -69,13 +91,11 @@ void setup() {
   Serial.print(F("Device address: ")); Serial.println(finger.device_addr, HEX);
   Serial.print(F("Packet len: ")); Serial.println(finger.packet_len);
   Serial.print(F("Baud rate: ")); Serial.println(finger.baud_rate);
+}
 
-  // Connet to wifi
+void conenctWifi() {
   delay(100);
-  Serial.println();
-  Serial.println();
-  Serial.println();
-  Serial.println("================================");
+  Serial.println("\n\n\n================================");
   Serial.println("Connecting to Wifi");
 
   WiFi.begin(STASSID, STAPSK);
@@ -84,12 +104,9 @@ void setup() {
     Serial.print(".");
   }
   Serial.print("Connected! IP address: "); Serial.println(WiFi.localIP());
+}
 
-
-  // Connect to ntp server;
-  timeClient.begin();
-
-  // Connect to DS1307 (RTC object)
+void connectDS1307() {
   bool connectToRTC = false;
   while(!connectToRTC){
     if(!rtc.begin()) {
@@ -113,16 +130,56 @@ void setup() {
       haveRTC = true;
     }
   }
+}
+//===================================================================
 
-  // Get Time from server
+void setup() {
+  Serial.begin(9600);
+  delay(100);
+
+  // Connect I2C LCD
+  conenctLCD();
+  delay(2000);
+
+  // Connect to DS1307 (RTC object)
+  lcd.clear();
+  printTextLCD("Connect RTC", 0);
+  connectDS1307();
+  delay(2000);
+  
+  // Connect to R308 fingerprint sensor
+  lcd.clear();
+  printTextLCD("Connect Fingerprint Sensor", 0);
+  connectFingerprintSensor();
+  delay(2000);
+
+  // Connet to wifi
+  lcd.clear();
+  printTextLCD("Connect Wifi", 0);
+  conenctWifi();
+  delay(2000);
+
+  // Connect to ntp server;
+  lcd.clear();
+  printTextLCD("Connect NTP server", 0);
+  timeClient.begin();
+  delay(2000);
+
+  // Get Time from NTP server
   Serial.println("\nGet Time from server!");
   Serial.println("Update time");
   updateDateTime();
   Serial.println(Time);
   Serial.println(Date);
+
+  // Update Time of RTC object (DS1307)
   if(haveRTC){
     rtc.adjust(DateTime(year_, month_, day_, hour_, minute_, second_));
   }
+
+  lcd.clear();
+  printTextLCD("Setup done!!!", 0);
+  delay(2000);
 }
 
 void loop() {
@@ -138,6 +195,8 @@ void loop() {
         Serial.println(Date);
         if(haveRTC){
           rtc.adjust(DateTime(year_, month_, day_, hour_, minute_, second_));
+          lcd.clear();
+          printTextLCD("Update time!!", 0);
         }
         break;
       }
@@ -162,10 +221,14 @@ void loop() {
   Serial.println("Attempting to empty the database");
   finger.emptyDatabase();
   Serial.println("Database is empty");
-
+  lcd.clear();
+  printTextLCD("Empty database", 0);
   delay(1000);
 
   if((WiFi.status() == WL_CONNECTED)) {
+    lcd.clear();
+    printTextLCD("Loading info...", 0);
+
     // Get fingerprint from server
     WiFiClient client;
     HTTPClient http;
@@ -180,6 +243,9 @@ void loop() {
 
       // Server return OK
       if (httpCode == HTTP_CODE_OK) {
+        lcd.clear();
+        printTextLCD("Get OK", 0);
+
         String payload = http.getString();
         Serial.println("received payload:\n<<");
 
@@ -219,9 +285,7 @@ void loop() {
         //Again and write to sensor
         Serial.println("Display template in decimal format (which represent 8-bits/1-byte data)");
         Serial.println("Then write to sensor\n");
-
         delay(2000);
-
         for(int i = 0; i < fingerDataArrayLength; i++){
 
           Serial.println("\nConverting template in 2-digits hexa string to 8-bits interger.....");
@@ -258,6 +322,8 @@ void loop() {
 
           if (finger.storeModel(i+1) == FINGERPRINT_OK) { //saving the template against the ID you entered or manually set
             Serial.print("Successfully stored against ID#");Serial.println(i);
+            lcd.clear();
+            printTextLCD("Store " + String(i), 0);
             fingerDatas[i].fingerId = i+1;
             FingerMap[i+1] = fingerDatas[i].id;
           } else {
@@ -266,16 +332,33 @@ void loop() {
           }
         }
       }
-    } else {
+
+    } 
+    else {
       Serial.printf("[HTTP] GET... failed, error: %s\n", http.errorToString(httpCode).c_str());
+      printTextLCD("Got error", 0);
     }
+
+    delay(2000);
 
     http.end();
   }
 
   // Scan fingerprint
+  String classCode = "NET1604";
+  String subjectCode = "SWP391";
+  String date = "09/06/2024";
+  String startTime = "14:00";
+  String endTime = "16:00";
+  String mssv = "SE161404";
+  String fullName = "Le Dang Khoa";
+
   Serial.println("Ready to scan fingerprint");
+  delay(50);
   while(1){
+    lcd.clear();
+    printTextLCD(classCode + " - " + subjectCode, 0);
+    printTextLCD(date + "  " + startTime + " - " + endTime, 1);
     int fingerId = getFingerprintIDez();
     if(fingerId > 0)
     {
@@ -301,6 +384,8 @@ void loop() {
           if (httpCode == HTTP_CODE_OK) {
             String payload = http.getString();
             Serial.println("Attendance successfully: " + payload);
+            lcd.clear();
+            printTextLCD(mssv + " - " + fullName + " attended", 1);
           }
         }
         else{
@@ -308,13 +393,18 @@ void loop() {
         }
       }
     }
-    delay(50);
+    else if(fingerId == 0) {
+      lcd.clear();
+      printTextLCD("Finger does not match", 1);
+    }
+    delay(2000);
     Serial.print(".");
   }
 
   delay(3000);
 }
 
+// Convert fingerprint template in a string of hexa to binary (8 bit unsigned integer)
 uint8_t convert_hex_to_binary(std::string hexString){
   uint8_t resultArray[512];
   // Process the input string
@@ -329,15 +419,20 @@ uint8_t convert_hex_to_binary(std::string hexString){
   return result;
 }
 
+// Fingerprint scanning
 int getFingerprintIDez() {
   uint8_t p = finger.getImage();
   if (p != FINGERPRINT_OK)  return -1;
+  lcd.clear();
+  printTextLCD("Scanning", 1);
 
   p = finger.image2Tz();
   if (p != FINGERPRINT_OK)  return -1;
 
   p = finger.fingerFastSearch();
-  if (p != FINGERPRINT_OK)  return -1;
+  if (p != FINGERPRINT_OK)  return 0;
+  lcd.clear();
+  printTextLCD("Finger matched", 1);
 
   // found a match!
   Serial.print("\nFound ID #"); Serial.print(finger.fingerID);
@@ -345,6 +440,7 @@ int getFingerprintIDez() {
   return finger.fingerID;
 }
 
+// Update DateTime information on memory
 void updateDateTime() {
   timeClient.update();
   unsigned long unix_epoch = timeClient.getEpochTime();    // Get Unix epoch time from the NTP server
@@ -389,6 +485,7 @@ void updateDateTime() {
   }
 }
 
+// Update DateTime of DS1307
 void updateDS1307DateTime(){
   DateTime now = rtc.now();
 
@@ -427,4 +524,24 @@ void updateDS1307DateTime(){
   CDateTime[15] = minute_ % 10 + 48;
   CDateTime[17] = second_ / 10 + 48;
   CDateTime[18] = second_ % 10 + 48;
+}
+
+void printTextLCD(String message, int row){
+  if(message.length() > 16) {
+    for(int i=0; i < 5; i++) {
+      message = " " + message; 
+    }
+    message = message + " ";
+
+    for(int pos = 0; pos < message.length() - 16; pos++){
+      lcd.setCursor(0, row);
+      lcd.print("");
+      lcd.print(message.substring(pos, pos + 16));
+      delay(350);
+    }
+  }
+  else{
+    lcd.setCursor(0, row);
+    lcd.print(message); 
+  }
 }
