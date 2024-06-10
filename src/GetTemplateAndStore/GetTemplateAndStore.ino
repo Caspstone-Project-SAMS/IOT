@@ -15,6 +15,7 @@
 
 #include <iostream>
 #include <vector>
+#include <ctime>
 
 //=========================Macro define=============================
 #define SERVER_IP "35.221.168.89"
@@ -33,21 +34,25 @@
 //===========================Class definition===========================
 class FingerData {
   public:
-    int id;
+    uint8_t id;
     std::string fingerprintTemplate;
-    int fingerId;
+    uint8_t fingerId;
 };
 
 class ScheduleData {
   public:
-    int scheduleID;
+    uint8_t scheduleID;
+    uint8_t classID;
     std::string date;
-    int slotNumber;
+    uint8_t slotNumber;
     std::string classCode;
     std::string subjectCode;
     std::string roomName;
     std::string startTime;
     std::string endTime;
+    struct tm dateStruct;
+    struct tm startTimeStruct;
+    struct tm endTimeStruct;
 }
 
 class Student {
@@ -60,7 +65,7 @@ class Student {
 
 class Class {
   public:
-    int classID;
+    uint8_t classID;
     std::string classCode;
     std::vector<Student> students;
 
@@ -71,23 +76,39 @@ class Class {
 
 class Attendance {
   public:
-    int scheduleID;
+    uint8_t storedFingerID;
+    uint8_t scheduleID;
     std::string userID;
     DateTime attendanceTime;
+    bool attended;
+
+    Attendance(uint8_t storedFingerId, uint8_t scheduleId, std::string userId) {
+      storedFingerID = storedFingerId;
+      scheduleID = scheduleId;
+      userID = userId;
+      attended = false;
+    }
 }
 //=======================================================================
 
 
 
 //===========================Memory variables declaration here===========================
-std::map<int, int> FingerMap;
+// DateTime format
+const char* dateFormat = "%Y-%m-%d";
+const char* timeFormat = "%H:%M:%S";
+const char* dateTimeFormat = "%Y-%m-%d %H:%M:%S";
 
-// List of schedules
+// List of schedules, classes and attendances
 std::vector<ScheduleData> scheduleDatas;
-// List of classes
 std::vector<Class> classes;
-// List of attendances
 std::vector<Attendance> attendances;
+
+// On-going schedule
+ScheduleData* onGoingSchedule = nullptr;
+
+// Check store fingerprint template or not
+bool fingerprintIsStored = false;
 
 // Fingerprint sensor
 SoftwareSerial mySerial(Finger_Rx, Finger_Tx);
@@ -102,7 +123,7 @@ NTPClient timeClient(ntpUDP, "asia.pool.ntp.org", 25200, 60000);
 char Time[] = "TIME:00:00:00";
 char Date[] = "DATE:00/00/2000";
 char CDateTime[] = "0000-00-00T00:00:00";
-byte last_second, second_, minute_, hour_, day_, month_;
+byte second_, minute_, hour_, day_, month_;
 int year_;
 //================================
 
@@ -262,125 +283,151 @@ void setup() {
 }
 
 void loop() {
+  
   int checkUpdateDateTime = checkUpdateDateTime();
   if(checkUpdateDateTime == 1){
     setupDS1307DateTime();
   }
 
-  if((WiFi.status() == WL_CONNECTED)) {
-    lcd.clear();
-    printTextLCD("Loading info...", 0);
+  // Get/Update on going schedule in each loop
+  getOnGoingSchedule();
 
-    // Get fingerprint from server
-    http.begin(client, "http://" SERVER_IP "/api/Hello/fingerprint"); 
+  // Store fingerprint to sensor if not write and (on-going schedule is avialable - check inside the called method)
+  if(!fingerprintIsStored){
+    writeFingerprintTemplateToSensor();
+  }
 
-    Serial.print("Download fingerprint templates from server using [HTTP] GET...\n");
-    int httpCode = http.GET();
+  // if((WiFi.status() == WL_CONNECTED)) {
+  //   lcd.clear();
+  //   printTextLCD("Loading info...", 0);
 
-    if(httpCode > 0) {
-      Serial.printf("[HTTP] GET... code: %d\n", httpCode);
+  //   // Get fingerprint from server
+  //   http.begin(client, "http://" SERVER_IP "/api/Hello/fingerprint"); 
 
-      // Server return OK
-      if (httpCode == HTTP_CODE_OK) {
-        lcd.clear();
-        printTextLCD("Get OK", 0);
+  //   Serial.print("Download fingerprint templates from server using [HTTP] GET...\n");
+  //   int httpCode = http.GET();
 
-        String payload = http.getString();
-        Serial.println("received payload:\n<<");
+  //   if(httpCode > 0) {
+  //     Serial.printf("[HTTP] GET... code: %d\n", httpCode);
 
-        // Data get from API
-        Serial.println("Working with Json String.......");
-        JSONVar fingerDataArray = JSON.parse(payload);
+  //     // Server return OK
+  //     if (httpCode == HTTP_CODE_OK) {
+  //       lcd.clear();
+  //       printTextLCD("Get OK", 0);
 
-        // Store fingerprint data in microcontroller
-        Serial.println("Create an array of FingerData to store list of fingerprint datas");
-        FingerData fingerDatas[fingerDataArray.length()];
+  //       String payload = http.getString();
+  //       Serial.println("received payload:\n<<");
 
-        Serial.println("Iterate through result get form API and store it to the array of FingerData");
-        for(int i = 0; i < fingerDataArray.length(); i++) {
-          if(JSON.typeof(fingerDataArray[i])=="object"){
-            FingerData fingerData;
-            fingerData.id = fingerDataArray[i]["id"];
-            fingerData.fingerprintTemplate = (const char*)fingerDataArray[i]["finger"];
-            fingerDatas[i] = fingerData;
-            Serial.print("Get "); Serial.printf("%d", i); Serial.println();
-            delay(500);
-          }
-        }
+  //       // Data get from API
+  //       Serial.println("Working with Json String.......");
+  //       JSONVar fingerDataArray = JSON.parse(payload);
 
-        delay(1000);
+  //       // Store fingerprint data in microcontroller
+  //       Serial.println("Create an array of FingerData to store list of fingerprint datas");
+  //       FingerData fingerDatas[fingerDataArray.length()];
 
-        // Display again
-        Serial.println("Display template again");
-        const int fingerDataArrayLength = sizeof(fingerDatas) / sizeof(fingerDatas[0]);
-        Serial.printf("Size of array: %d\n", fingerDataArrayLength);
-        for(int i = 0; i < fingerDataArrayLength; i++){
-          Serial.printf("Fingerprint Template %d: ", fingerDatas[i].id); Serial.println(fingerDatas[i].fingerprintTemplate.c_str());
-          delay(1000);
-        }
+  //       Serial.println("Iterate through result get form API and store it to the array of FingerData");
+  //       for(int i = 0; i < fingerDataArray.length(); i++) {
+  //         if(JSON.typeof(fingerDataArray[i])=="object"){
+  //           FingerData fingerData;
+  //           fingerData.id = fingerDataArray[i]["id"];
+  //           fingerData.fingerprintTemplate = (const char*)fingerDataArray[i]["finger"];
+  //           fingerDatas[i] = fingerData;
+  //           Serial.print("Get "); Serial.printf("%d", i); Serial.println();
+  //           delay(500);
+  //         }
+  //       }
 
-        delay(2000);
+  //       delay(1000);
 
-        //Again and write to sensor
-        Serial.println("Display template in decimal format (which represent 8-bits/1-byte data)");
-        Serial.println("Then write to sensor\n");
-        delay(2000);
-        for(int i = 0; i < fingerDataArrayLength; i++){
+  //       // Display again
+  //       Serial.println("Display template again");
+  //       const int fingerDataArrayLength = sizeof(fingerDatas) / sizeof(fingerDatas[0]);
+  //       Serial.printf("Size of array: %d\n", fingerDataArrayLength);
+  //       for(int i = 0; i < fingerDataArrayLength; i++){
+  //         Serial.printf("Fingerprint Template %d: ", fingerDatas[i].id); Serial.println(fingerDatas[i].fingerprintTemplate.c_str());
+  //         delay(1000);
+  //       }
 
-          Serial.println("\nConverting template in 2-digits hexa string to 8-bits interger.....");
-          std::string fingertemplate = fingerDatas[i].fingerprintTemplate;
-          uint8_t fingerTemplate[512];
-          memset(fingerTemplate, 0xff, 512);
-          for (int i = 0; i < 512; i++) {
-            // Extract the current pair of characters
-            char hexPair[2]; // Two characters + null terminator
-            hexPair[0] = fingertemplate[2 * i];
-            hexPair[1] = fingertemplate[2 * i + 1];
-            // Convert the pair to a uint8_t value
-            std::string hexPairString(hexPair, hexPair + 2);
-            fingerTemplate[i] = convert_hex_to_binary(hexPairString);
-          }
+  //       delay(2000);
 
-          Serial.print("Template in decimal format: ");
-          for (int i=0; i<512; i++)
-          {
-            Serial.print(fingerTemplate[i]); Serial.print(" ");
-          }
+  //       //Again and write to sensor
+  //       Serial.println("Display template in decimal format (which represent 8-bits/1-byte data)");
+  //       Serial.println("Then write to sensor\n");
+  //       delay(2000);
+  //       for(int i = 0; i < fingerDataArrayLength; i++){
 
-          //Write to sensor's buffer
-          if (finger.write_template_to_sensor(template_buf_size,fingerTemplate)) { //telling the sensor to download the template data to it's char buffer from upper computer (this microcontroller's "fingerTemplate" buffer)
-            Serial.println("now writing to sensor buffer 1...");
-          } else {
-            Serial.println("writing to sensor failed");
-            return;
-          }
+  //         Serial.println("\nConverting template in 2-digits hexa string to 8-bits interger.....");
+  //         std::string fingertemplate = fingerDatas[i].fingerprintTemplate;
 
-          delay(500);
-          Serial.println("Storing......");
-          delay(500);
 
-          if (finger.storeModel(i+1) == FINGERPRINT_OK) { //saving the template against the ID you entered or manually set
-            Serial.print("Successfully stored against ID#");Serial.println(i);
-            lcd.clear();
-            printTextLCD("Store " + String(i), 0);
-            fingerDatas[i].fingerId = i+1;
-            FingerMap[i+1] = fingerDatas[i].id;
-          } else {
-            Serial.println("Storing error");
-            return ;
-          }
-        }
-      }
+  //         uint8_t fingerTemplate[512];
+  //         memset(fingerTemplate, 0xff, 512);
+  //         for (int i = 0; i < 512; i++) {
+  //           // Extract the current pair of characters
+  //           char hexPair[2]; // Two characters + null terminator
+  //           hexPair[0] = fingertemplate[2 * i];
+  //           hexPair[1] = fingertemplate[2 * i + 1];
+  //           // Convert the pair to a uint8_t value
+  //           std::string hexPairString(hexPair, hexPair + 2);
+  //           fingerTemplate[i] = convert_hex_to_binary(hexPairString);
+  //         }
 
-    } 
-    else {
-      Serial.printf("[HTTP] GET... failed, error: %s\n", http.errorToString(httpCode).c_str());
-      printTextLCD("Got error", 0);
-    }
+  //         Serial.print("Template in decimal format: ");
+  //         for (int i=0; i<512; i++)
+  //         {
+  //           Serial.print(fingerTemplate[i]); Serial.print(" ");
+  //         }
 
-    delay(2000);
+  //         //Write to sensor's buffer
+  //         if (finger.write_template_to_sensor(template_buf_size,fingerTemplate)) { //telling the sensor to download the template data to it's char buffer from upper computer (this microcontroller's "fingerTemplate" buffer)
+  //           Serial.println("now writing to sensor buffer 1...");
+  //         } else {
+  //           Serial.println("writing to sensor failed");
+  //           return;
+  //         }
 
-    http.end();
+  //         delay(500);
+  //         Serial.println("Storing......");
+  //         delay(500);
+
+  //         if (finger.storeModel(i+1) == FINGERPRINT_OK) { //saving the template against the ID you entered or manually set
+  //           Serial.print("Successfully stored against ID#");Serial.println(i);
+  //           lcd.clear();
+  //           printTextLCD("Store " + String(i), 0);
+  //           fingerDatas[i].fingerId = i+1;
+  //           FingerMap[i+1] = fingerDatas[i].id;
+  //         } else {
+  //           Serial.println("Storing error");
+  //           return ;
+  //         }
+  //       }
+  //     }
+
+  //   } 
+  //   else {
+  //     Serial.printf("[HTTP] GET... failed, error: %s\n", http.errorToString(httpCode).c_str());
+  //     printTextLCD("Got error", 0);
+  //   }
+
+  //   delay(2000);
+
+  //   http.end();
+  // }
+
+  uint8_t scheduleID;
+    uint8_t classID;
+    std::string date;
+    uint8_t slotNumber;
+    std::string classCode;
+    std::string subjectCode;
+    std::string roomName;
+    std::string startTime;
+    std::string endTime;
+
+  // Fingerprint scanning if in slot
+  if(onGoingSchedule!=nullptr){
+    
   }
 
   // Scan fingerprint
@@ -461,6 +508,8 @@ uint8_t convert_hex_to_binary(std::string hexString){
   return result;
 }
 
+
+
 // Fingerprint scanning
 int getFingerprintIDez() {
   uint8_t p = finger.getImage();
@@ -483,6 +532,9 @@ int getFingerprintIDez() {
   return finger.fingerID;
 }
 
+
+
+// Set DateTime of DS1307
 void setupDS1307DateTime() {
   int checkwifi = checkWifi();
   if(checkWifi == 0){
@@ -504,7 +556,9 @@ void setupDS1307DateTime() {
   rtc.adjust(DateTime(year_, month_, day_, hour_, minute_, second_));
 }
 
-// Update DateTime of DS1307
+
+
+// Get DateTime of DS1307
 void getDS1307DateTime(){
   DateTime now = rtc.now();
 
@@ -514,7 +568,11 @@ void getDS1307DateTime(){
   day_    = now.day();
   month_  = now.month();
   year_   = now.year();
+}
 
+
+
+void parseDateTimeToString(){
   Time[12] = second_ % 10 + 48;
   Time[11] = second_ / 10 + 48;
   Time[9]  = minute_ % 10 + 48;
@@ -545,6 +603,8 @@ void getDS1307DateTime(){
   CDateTime[18] = second_ % 10 + 48;
 }
 
+
+
 void printTextLCD(String message, int row){
   if(message.length() > 16) {
     for(int i=0; i < 5; i++) {
@@ -564,6 +624,8 @@ void printTextLCD(String message, int row){
     lcd.print(message); 
   }
 }
+
+
 
 void getSchedule() {
   int totalGet = 0;
@@ -624,6 +686,7 @@ void getSchedule() {
   for(int i = 0; i < scheduleDataArray.length(); i++) {
     ScheduleData scheduleData;
     scheduleData.scheduleID = scheduleDataArray[i]["scheduleID"];
+    scheduleData.classID = scheduleDataArray[i]["classID"];
     scheduleData.date = (const char*)scheduleDataArray[i]["date"];
     scheduleData.slotNumber = scheduleDataArray[i]["slotNumber"];
     scheduleData.classCode = (const char*)scheduleDataArray[i]["classCode"];
@@ -631,6 +694,12 @@ void getSchedule() {
     scheduleData.roomName = (const char*)scheduleDataArray[i]["roomName"];
     scheduleData.startTime = (const char*)scheduleDataArray[i]["startTime"];
     scheduleData.endTime = (const char*)scheduleDataArray[i]["endTime"];
+    
+    // Create struct for date, start time and end time
+    strptime(scheduleData.date.c_str(), dateFormat, &scheduleData.dateStruct);
+    strptime(scheduleData.startTime.c_str(), timeFormat, &scheduleData.startTimeStruct);
+    strptime(scheduleData.endTime.c_str(), timeFormat, &scheduleData.endTimeStruct);
+
     scheduleDatas.push_back(scheduleData);
 
     // load class information
@@ -646,7 +715,12 @@ void getSchedule() {
 
   lcd.clear();
   printTextLCD("Total get: " + totalGet, 0);
+  delay(2000);
+
+  http.end();
 }
+
+
 
 void getStudent(){
   lcd.clear();
@@ -655,8 +729,8 @@ void getStudent(){
 
   int totalGet = 0;
 
-  String url = "http://" + SERVER_IP + "/api/Student?classId=";
-
+  String url = "http://" + SERVER_IP + "/api/Student/get-students-by-classId?isModule=true&classID=";
+  //http://35.221.168.89/api/Student/get-students-by-classId?classID=1&isModule=true
   int checkWifi = checkWifi();
   if(checkWifi == 0){
     lcd.clear();
@@ -723,8 +797,12 @@ void getStudent(){
 
   lcd.clear();
   printTextLCD("Get students in " + String(totalGet) + " classes", 0);
-  delay(600);
+  delay(2000);
+
+  http.end();
 }
+
+
 
 int checkWifi(){
   for(int i = 1; i<= 5; i++){
@@ -739,6 +817,8 @@ int checkWifi(){
   printTextLCD("Connect failed");
   return 0;
 }
+
+
 
 int checkUpdateDateTime() {
   unsigned long now = millis();
@@ -758,6 +838,8 @@ int checkUpdateDateTime() {
   }
 }
 
+
+
 void resetData(){
 
   // Empty sensor
@@ -774,3 +856,134 @@ void resetData(){
   printTextLCD("Empty in-memory datas", 0);
   delay(1000);
 }
+
+
+
+void getOnGoingSchedule() {
+
+  if(scheduleDatas.size() == 0){
+    return;
+  }
+
+  getDS1307DateTime();
+
+  for(const ScheduleData& item : scheduleDatas){
+    // const char* date = item.date.c_str();
+    // const char* startTime = item.startTime.c_str();
+    // const char* endTime = item.endTime.c_str();
+
+    // // Convert Date string to Struct tm
+    // struct tm dateStruct;
+    // strptime(date, dateFormat, &tmStruct);
+    // if(checkOnDate(dateStruct)){
+    //     // Convert time string to Struct tm (startTime and endTime)
+    //     struct tm startTimeStruct, endTimeStruct;
+    //     strptime(startTime, timeFormat, &startTimeStruct);
+    //     strptime(endTime, timeFormat, &endTimeStruct);
+    //     if(checkWithinInterval(startTimeStruct, endTimeStruct)){
+    //       onGoingSchedule = &item;
+    //       lcd.clear();
+    //       printTextLCD("Get a schedule: " + item.scheduleID, 0)
+    //       return;
+    //     }
+    // }
+    if(checkOnDate(item.dateStruct)){
+      if(checkWithinInterval(item.startTimeStruct, item.endTimeStruct)){
+        onGoingSchedule = &item;
+        lcd.clear();
+        printTextLCD("Get a schedule: " + item.scheduleID, 0);
+        delay(1000);
+        return;
+      }
+    }
+  }
+
+  onGoingSchedule = nullptr;
+}
+
+
+
+bool checkOnDate(const struct tm& date){
+  if((date.tm_year+1900) != year_){
+    return false;
+  }
+  if((date.tm_mon+1) != month_){
+    return false;
+  }
+  if(date.tm_mday != day_){
+    return false;
+  }
+  return true;
+}
+
+
+
+bool checkWithinInterval(const struct tm& startTime, const struct tm& endTime){
+  if(startTime.tm_hour < hour_ && endTime.tm_hour > hour_){
+    return true;
+  }
+  if(startTime.tm_hour == hour_ && startTime.tm_min <= minute_){
+    return true;
+  }
+  if(endTime.tm_hour == hour_ && endTime.tm_min >= minute_){
+    return true;
+  }
+  return false;
+}
+
+
+
+void writeFingerprintTemplateToSensor(){
+  if(onGoingSchedule == nullptr){
+    return;
+  }
+
+  lcd.clear();
+  printTextLCD("Uploading fingerprint ...", 0);
+  delay(500);
+
+  uint8_t classID = onGoingSchedule.classID;
+
+  for(const Class& item : classes){
+    if(item.classID == classID){
+      printTextLCD("From class " + classID, 1);
+      delay(500);
+
+      int totalUploadedFingerprint = 0;
+      for(const Student& student : item.students){
+        int i = 0;
+        uint8_t fingerTemplate[512];
+        memset(fingerTemplate, 0xff, 512);
+        for (int i = 0; i < 512; i++) {
+          // Extract the current pair of 2 characters
+          char hexPair[2]; // Two characters + null terminator (array of characters always have null terminator is '\0')
+          hexPair[0] = student.fingerprintTemplateData[2 * i];
+          hexPair[1] = student.fingerprintTemplateData[2 * i + 1];
+          // Convert the pair to a uint8_t value
+          std::string hexPairString(hexPair, hexPair + 2);
+          fingerTemplate[i] = convert_hex_to_binary(hexPairString);
+        }
+        if(finger.write_template_to_sensor(template_buf_size,fingerTemplate)){
+          if(finger.storeModel(++i) == FINGERPRINT_OK){
+            totalUploadedFingerprint++;
+            Attendance attendance(i, onGoingSchedule.scheduleID, student.userID);
+            attendances.push_back(attendance);
+          }
+        }
+      }
+
+      printTextLCD(" ", 1);
+      printTextLCD("uploaded " + totalUploadedFingerprint + "/" + item.students.size(), 1);
+      delay(2000);
+
+      return;
+    }
+  }
+
+  printTextLCD("No class found", 1);
+  delay(500);
+}
+
+
+
+
