@@ -13,6 +13,9 @@
 #include <TimeLib.h>
 #include <map>
 
+#include <iostream>
+#include <vector>
+
 //=========================Macro define=============================
 #define SERVER_IP "35.221.168.89"
 
@@ -34,6 +37,44 @@ class FingerData {
     std::string fingerprintTemplate;
     int fingerId;
 };
+
+class ScheduleData {
+  public:
+    int scheduleID;
+    std::string date;
+    int slotNumber;
+    std::string classCode;
+    std::string subjectCode;
+    std::string roomName;
+    std::string startTime;
+    std::string endTime;
+}
+
+class Student {
+  public:
+    std::string studentName;
+    std::string userID;
+    std::string studentCode;
+    std::string fingerprintTemplateData;
+}
+
+class Class {
+  public:
+    int classID;
+    std::string classCode;
+    std::vector<Student> students;
+
+    Class(std::string code){
+      classCode = code;
+    }
+}
+
+class Attendance {
+  public:
+    int scheduleID;
+    std::string userID;
+    DateTime attendanceTime;
+}
 //=======================================================================
 
 
@@ -41,10 +82,19 @@ class FingerData {
 //===========================Memory variables declaration here===========================
 std::map<int, int> FingerMap;
 
+// List of schedules
+std::vector<ScheduleData> scheduleDatas;
+// List of classes
+std::vector<Class> classes;
+// List of attendances
+std::vector<Attendance> attendances;
+
 // Fingerprint sensor
 SoftwareSerial mySerial(Finger_Rx, Finger_Tx);
 int template_buf_size = 512;
 Adafruit_Fingerprint finger = Adafruit_Fingerprint(&mySerial);
+//================================
+
 
 // DateTime information, NTP client
 WiFiUDP ntpUDP;
@@ -54,19 +104,32 @@ char Date[] = "DATE:00/00/2000";
 char CDateTime[] = "0000-00-00T00:00:00";
 byte last_second, second_, minute_, hour_, day_, month_;
 int year_;
+//================================
+
 
 // DS1307 real-time
 RTC_DS1307 rtc;
 bool haveRTC = false;
+static unsigned long lastUpdate = 0;
+static const unsigned long intervalTime = 2073600000; //24days
+//================================
+
 
 // LCD I2C
 int lcdColumns = 16;
 int lcdRows = 2;
 LiquidCrystal_I2C lcd(0x27, lcdColumns, lcdRows);
+//================================
 
-//=======================================================================
 
-//========================Connecting==================================
+// Http Client
+WiFiClient client;
+HTTPClient http;
+//================================
+
+
+
+//========================Set up code==================================
 void conenctLCD() {
   lcd.init();
   lcd.backlight();
@@ -133,6 +196,7 @@ void connectDS1307() {
 }
 //===================================================================
 
+
 void setup() {
   Serial.begin(9600);
   delay(100);
@@ -165,17 +229,32 @@ void setup() {
   timeClient.begin();
   delay(2000);
 
-  // Get Time from NTP server
-  Serial.println("\nGet Time from server!");
-  Serial.println("Update time");
-  updateDateTime();
-  Serial.println(Time);
-  Serial.println(Date);
-
-  // Update Time of RTC object (DS1307)
+  // Setup datetime for module
+  lcd.clear();
+  printTextLCD("Setup DateTime", 0);
+  delay(1000);
   if(haveRTC){
-    rtc.adjust(DateTime(year_, month_, day_, hour_, minute_, second_));
+    lcd.clear();
+    printTextLCD("RTC found", 0);
+    printTextLCD("Setup RTC", 0);
+    setupDS1307DateTime();
   }
+  else{
+    lcd.clear();
+    printTextLCD("RTC not found", 0);
+    while(1);
+  }
+
+  lcd.clear();
+  printTextLCD("Prepare data", 0);
+  delay(1000);
+
+  //Reset data
+  resetData();
+
+  // Load data
+  getSchedule();
+  getStudent();
 
   lcd.clear();
   printTextLCD("Setup done!!!", 0);
@@ -183,56 +262,16 @@ void setup() {
 }
 
 void loop() {
-  Serial.println("\n\nUpdate Time again!");
-  Serial.println("Press 'Y' key to Update, other keys to Cancel");
-  while(1) {
-    if(Serial.available())
-    {
-      if(Serial.read() == 'Y')
-      {
-        updateDateTime();
-        Serial.println(Time);
-        Serial.println(Date);
-        if(haveRTC){
-          rtc.adjust(DateTime(year_, month_, day_, hour_, minute_, second_));
-          lcd.clear();
-          printTextLCD("Update time!!", 0);
-        }
-        break;
-      }
-      else
-      {
-        break;
-      }
-    }
+  int checkUpdateDateTime = checkUpdateDateTime();
+  if(checkUpdateDateTime == 1){
+    setupDS1307DateTime();
   }
-
-  Serial.println("\n\nReady to download fingerprint!");
-  Serial.println("Press 'Y' key to continue");
-  while(1) {
-    if (Serial.available() && (Serial.read() == 'Y'))
-    {
-      break;
-    }
-  }
-
-  // Empty the database
-  Serial.println("\n\n===========================");
-  Serial.println("Attempting to empty the database");
-  finger.emptyDatabase();
-  Serial.println("Database is empty");
-  lcd.clear();
-  printTextLCD("Empty database", 0);
-  delay(1000);
 
   if((WiFi.status() == WL_CONNECTED)) {
     lcd.clear();
     printTextLCD("Loading info...", 0);
 
     // Get fingerprint from server
-    WiFiClient client;
-    HTTPClient http;
-
     http.begin(client, "http://" SERVER_IP "/api/Hello/fingerprint"); 
 
     Serial.print("Download fingerprint templates from server using [HTTP] GET...\n");
@@ -368,7 +407,7 @@ void loop() {
       Serial.println(id);
       Serial.println(WiFi.status());
 
-      updateDS1307DateTime();
+      getDS1307DateTime();
 
       if(WiFi.status() == WL_CONNECTED){
         WiFiClient client;
@@ -404,6 +443,9 @@ void loop() {
   delay(3000);
 }
 
+
+//===========================Common functions================================
+
 // Convert fingerprint template in a string of hexa to binary (8 bit unsigned integer)
 uint8_t convert_hex_to_binary(std::string hexString){
   uint8_t resultArray[512];
@@ -433,6 +475,7 @@ int getFingerprintIDez() {
   if (p != FINGERPRINT_OK)  return 0;
   lcd.clear();
   printTextLCD("Finger matched", 1);
+  delay(1000);
 
   // found a match!
   Serial.print("\nFound ID #"); Serial.print(finger.fingerID);
@@ -440,53 +483,29 @@ int getFingerprintIDez() {
   return finger.fingerID;
 }
 
-// Update DateTime information on memory
-void updateDateTime() {
+void setupDS1307DateTime() {
+  int checkwifi = checkWifi();
+  if(checkWifi == 0){
+    lcd.clear();
+    printTextLCD("Cannot setup datetime", 0);
+    printTextLCD("Wifi not connected", 1);
+    while(1);
+  }
+
   timeClient.update();
   unsigned long unix_epoch = timeClient.getEpochTime();    // Get Unix epoch time from the NTP server
   second_ = second(unix_epoch);
-  if(last_second != second_){
-    minute_ = minute(unix_epoch);
-    hour_   = hour(unix_epoch);
-    day_    = day(unix_epoch);
-    month_  = month(unix_epoch);
-    year_   = year(unix_epoch);
+  minute_ = minute(unix_epoch);
+  hour_   = hour(unix_epoch);
+  day_    = day(unix_epoch);
+  month_  = month(unix_epoch);
+  year_   = year(unix_epoch);
 
-    Time[12] = second_ % 10 + 48;
-    Time[11] = second_ / 10 + 48;
-    Time[9]  = minute_ % 10 + 48;
-    Time[8]  = minute_ / 10 + 48;
-    Time[6]  = hour_   % 10 + 48;
-    Time[5]  = hour_   / 10 + 48;
-
-    Date[5]  = day_   / 10 + 48;
-    Date[6]  = day_   % 10 + 48;
-    Date[8]  = month_  / 10 + 48;
-    Date[9]  = month_  % 10 + 48;
-    Date[13] = (year_   / 10) % 10 + 48;
-    Date[14] = year_   % 10 % 10 + 48;
-
-    CDateTime[0] = (year_ / 10 / 10 / 10) % 10 + 48;
-    CDateTime[1] = (year_ / 10 / 10) % 10 + 48;
-    CDateTime[2] = (year_ / 10) % 10 + 48;
-    CDateTime[3] = year_ % 10 % 10 + 48;
-    CDateTime[5] = month_  / 10 + 48;
-    CDateTime[6] = month_  % 10 + 48;
-    CDateTime[8] = day_  / 10 + 48;
-    CDateTime[9] = day_  % 10 + 48;
-    CDateTime[11] = hour_  / 10 + 48;
-    CDateTime[12] = hour_  % 10 + 48;
-    CDateTime[14] = minute_ / 10 + 48;
-    CDateTime[15] = minute_ % 10 + 48;
-    CDateTime[17] = second_ / 10 + 48;
-    CDateTime[18] = second_ % 10 + 48;
-
-    last_second = second_;
-  }
+  rtc.adjust(DateTime(year_, month_, day_, hour_, minute_, second_));
 }
 
 // Update DateTime of DS1307
-void updateDS1307DateTime(){
+void getDS1307DateTime(){
   DateTime now = rtc.now();
 
   second_ = now.second();
@@ -537,11 +556,221 @@ void printTextLCD(String message, int row){
       lcd.setCursor(0, row);
       lcd.print("");
       lcd.print(message.substring(pos, pos + 16));
-      delay(350);
+      delay(300);
     }
   }
   else{
     lcd.setCursor(0, row);
     lcd.print(message); 
   }
+}
+
+void getSchedule() {
+  int totalGet = 0;
+
+  String lecturerId = "a829c0b5-78dc-4194-a424-08dc8640e68a";
+  String semesterId = "2";
+  String startDate = "2024-06-11";
+  String endDate = "2024-06-13";
+  String url = "http://" + SERVER_IP + "/api/Schedule?lecturerId=" + lecturerId + "&semesterId=" + semesterId + "&startDate=" + startDate + "&endDate=" + endDate;
+  //http://35.221.168.89/api/Schedule?lecturerId=a829c0b5-78dc-4194-a424-08dc8640e68a&semesterId=2&startDate=2024-11-06&endDate=2024-12-06
+
+  int checkWifi = checkWifi();
+  if(checkWifi == 0){
+    lcd.clear();
+    printTextLCD("Cannot get schedules", 0);
+    printTextLCD("Wifi not connected", 1);
+    delay(1000);
+    return;
+  }
+
+  http.begin(client, url);
+  int httpCode = http.GET();
+  if(httpCode <= 0){
+    lcd.clear();
+    printTextLCD("GET failed: " + http.errorToString(httpCode), 0);
+    delay(1000);
+    return;
+  }
+
+  if (httpCode != HTTP_CODE_OK){
+    lcd.clear();
+    printTextLCD("GET failed!!!", 0);
+    printTextLCD("Status code: " + httpCode, 1);
+    delay(1000);
+    return;
+  }
+
+  String payload = http.getString();
+  JSONVar scheduleDataArray = JSON.parse(payload);
+
+  // Check whether if data is in correct format
+  if(JSON.typeof(scheduleDataArray)!="array"){
+    lcd.clear();
+    printTextLCD("Invalid data format!!!", 0);
+    delay(1000);
+    return;
+  }
+  for(int i = 0; i < scheduleDataArray.length(); i++) {
+    if(JSON.typeof(scheduleDataArray[i])!="object"){
+      lcd.clear();
+      printTextLCD("Invalid data format!!!", 0);
+      delay(1000);
+      return;
+    }
+  }
+
+  // Load schedules information
+  for(int i = 0; i < scheduleDataArray.length(); i++) {
+    ScheduleData scheduleData;
+    scheduleData.scheduleID = scheduleDataArray[i]["scheduleID"];
+    scheduleData.date = (const char*)scheduleDataArray[i]["date"];
+    scheduleData.slotNumber = scheduleDataArray[i]["slotNumber"];
+    scheduleData.classCode = (const char*)scheduleDataArray[i]["classCode"];
+    scheduleData.subjectCode = (const char*)scheduleDataArray[i]["subjectCode"];
+    scheduleData.roomName = (const char*)scheduleDataArray[i]["roomName"];
+    scheduleData.startTime = (const char*)scheduleDataArray[i]["startTime"];
+    scheduleData.endTime = (const char*)scheduleDataArray[i]["endTime"];
+    scheduleDatas.push_back(scheduleData);
+
+    // load class information
+    Class newClass(scheduleData.classCode);
+    newClass.classID = scheduleDataArray[i]["classID"];
+    classes.push_back(newClass);
+
+    totalGet++;
+    lcd.clear();
+    printTextLCD("Get schedule " + (i+1), 0);
+    delay(600);
+  }
+
+  lcd.clear();
+  printTextLCD("Total get: " + totalGet, 0);
+}
+
+void getStudent(){
+  lcd.clear();
+  printTextLCD("Get students information", 0);
+  delay(600);
+
+  int totalGet = 0;
+
+  String url = "http://" + SERVER_IP + "/api/Student?classId=";
+
+  int checkWifi = checkWifi();
+  if(checkWifi == 0){
+    lcd.clear();
+    printTextLCD("Cannot get students", 0);
+    printTextLCD("Wifi not connected", 1);
+    delay(1000);
+    return;
+  }
+
+  if(classes.size() == 0){
+    lcd.clear();
+    printTextLCD("No classes information", 0);
+    delay(1000);
+    return;
+  }
+
+  for(Class& item : classes){
+    lcd.clear();
+    printTextLCD("Class " + item.classCode.c_str(), 0);
+    delay(1000);
+
+    String apiEndpoint = url + String(item.classID);
+
+    http.begin(client, apiEndpoint);
+    int httpCode = http.GET();
+    if(httpCode <= 0){
+      lcd.clear();
+      printTextLCD("GET failed: " + http.errorToString(httpCode), 0);
+      delay(1000);
+      return;
+    }
+
+    if (httpCode != HTTP_CODE_OK){
+      lcd.clear();
+      printTextLCD("GET failed!!!", 0);
+      printTextLCD("Status code: " + httpCode, 1);
+      delay(1000);
+      return;
+    }
+
+    String payload = http.getString();
+    JSONVar studentDataArray = JSON.parse(payload);
+
+    // Check whether if data is in correct format
+    if(JSON.typeof(studentDataArray)!="array"){
+      lcd.clear();
+      printTextLCD("Invalid data format!!!", 0);
+      delay(1000);
+      return;
+    }
+
+    std::vector<Student> studentInClass;
+    for(int i = 0; i < studentDataArray.length(); i++) {
+      Student student;
+      student.studentName = (const char*)studentDataArray[i]["studentName"];
+      student.userID = (const char*)studentDataArray[i]["UserID"];
+      student.studentCode = (const char*)studentDataArray[i]["StudentCode"];
+      student.fingerprintTemplateData = (const char*)studentDataArray[i]["FingerprintTemplateData"];
+      studentInClass.push_back(student);
+    }
+    item.students = studentInClass;
+    totalGet++;
+  }
+
+  lcd.clear();
+  printTextLCD("Get students in " + String(totalGet) + " classes", 0);
+  delay(600);
+}
+
+int checkWifi(){
+  for(int i = 1; i<= 5; i++){
+    if(WiFi.status() == WL_CONNECTED){
+      return 1;
+    }
+    lcd.clear();
+    printTextLCD("Attempting to connect wifi: " + i, 0);
+    WiFi.begin(STASSID, STAPSK);
+    delay(500);
+  }
+  printTextLCD("Connect failed");
+  return 0;
+}
+
+int checkUpdateDateTime() {
+  unsigned long now = millis();
+  if(now < lastUpdate){
+    lastUpdate = 0;
+    return 0;
+  }
+  if(lastUpdate >= 2*intervalTime){
+    return 0;
+  }
+  else if(now > (lastUpdate + intervalTime)){
+    lastUpdate = now;
+    return 1;
+  }
+  else{
+    return 0;
+  }
+}
+
+void resetData(){
+
+  // Empty sensor
+  finger.emptyDatabase();
+  lcd.clear();
+  printTextLCD("Empty database", 0);
+  delay(1000);
+
+  // Empty data
+  scheduleDatas.clear();
+  classes.clear();
+  attendances.clear();
+  lcd.clear();
+  printTextLCD("Empty in-memory datas", 0);
+  delay(1000);
 }
