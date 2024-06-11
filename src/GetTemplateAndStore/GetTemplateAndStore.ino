@@ -16,6 +16,7 @@
 #include <iostream>
 #include <vector>
 #include <ctime>
+#include <algorithm>
 
 //=========================Macro define=============================
 #define SERVER_IP "35.221.168.89"
@@ -53,7 +54,7 @@ class ScheduleData {
     struct tm dateStruct;
     struct tm startTimeStruct;
     struct tm endTimeStruct;
-}
+};
 
 class Student {
   public:
@@ -61,7 +62,7 @@ class Student {
     std::string userID;
     std::string studentCode;
     std::string fingerprintTemplateData;
-}
+};
 
 class Class {
   public:
@@ -72,23 +73,25 @@ class Class {
     Class(std::string code){
       classCode = code;
     }
-}
+};
 
 class Attendance {
   public:
-    uint8_t storedFingerID;
+    uint16_t storedFingerID;
     uint8_t scheduleID;
     std::string userID;
+    std::string studentCode;
     DateTime attendanceTime;
     bool attended;
 
-    Attendance(uint8_t storedFingerId, uint8_t scheduleId, std::string userId) {
+    Attendance(uint8_t storedFingerId, uint8_t scheduleId, std::string userId, std::string StudentCode) {
       storedFingerID = storedFingerId;
       scheduleID = scheduleId;
       userID = userId;
+      studentCode = StudentCode;
       attended = false;
     }
-}
+};
 //=======================================================================
 
 
@@ -120,8 +123,8 @@ Adafruit_Fingerprint finger = Adafruit_Fingerprint(&mySerial);
 // DateTime information, NTP client
 WiFiUDP ntpUDP;
 NTPClient timeClient(ntpUDP, "asia.pool.ntp.org", 25200, 60000);
-char Time[] = "TIME:00:00:00";
-char Date[] = "DATE:00/00/2000";
+char Time[] = "TIME:00:00:00   ";
+char Date[] = "DATE:00-00-2000 ";
 char CDateTime[] = "0000-00-00T00:00:00";
 byte second_, minute_, hour_, day_, month_;
 int year_;
@@ -283,19 +286,46 @@ void setup() {
 }
 
 void loop() {
-  
-  int checkUpdateDateTime = checkUpdateDateTime();
-  if(checkUpdateDateTime == 1){
+  int checkUpdateDateTimeStatus = checkUpdateDateTime();
+  if(checkUpdateDateTimeStatus == 1){
     setupDS1307DateTime();
   }
 
+
+  // UpdateTime continuously
+  getDS1307DateTime();
+
+
   // Get/Update on going schedule in each loop
   getOnGoingSchedule();
+
 
   // Store fingerprint to sensor if not write and (on-going schedule is avialable - check inside the called method)
   if(!fingerprintIsStored){
     writeFingerprintTemplateToSensor();
   }
+
+
+  // Session start if in slot, otherwise display date-time
+  if(onGoingSchedule!=nullptr){
+    uint32_t duration = 0;
+    getDurationInSeconds(onGoingSchedule->startTimeStruct, onGoingSchedule->endTimeStruct, duration);
+    lcd.clear();
+    printTextLCD("Duration: " + String(duration), 0);
+    delay(3000);
+
+    if(duration > 0){
+      attendanceSession(duration);
+    }
+  }
+  else{
+    //print datetime get from RTC
+    parseDateTimeToString();
+    printTextLCD(Date, 0);
+    printTextLCD(Time, 1);
+    delay(1000);
+  }
+
 
   // if((WiFi.status() == WL_CONNECTED)) {
   //   lcd.clear();
@@ -415,79 +445,64 @@ void loop() {
   //   http.end();
   // }
 
-  uint8_t scheduleID;
-    uint8_t classID;
-    std::string date;
-    uint8_t slotNumber;
-    std::string classCode;
-    std::string subjectCode;
-    std::string roomName;
-    std::string startTime;
-    std::string endTime;
-
-  // Fingerprint scanning if in slot
-  if(onGoingSchedule!=nullptr){
-    
-  }
-
   // Scan fingerprint
-  String classCode = "NET1604";
-  String subjectCode = "SWP391";
-  String date = "09/06/2024";
-  String startTime = "14:00";
-  String endTime = "16:00";
-  String mssv = "SE161404";
-  String fullName = "Le Dang Khoa";
+  // String classCode = "NET1604";
+  // String subjectCode = "SWP391";
+  // String date = "09/06/2024";
+  // String startTime = "14:00";
+  // String endTime = "16:00";
+  // String mssv = "SE161404";
+  // String fullName = "Le Dang Khoa";
 
-  Serial.println("Ready to scan fingerprint");
-  delay(50);
-  while(1){
-    lcd.clear();
-    printTextLCD(classCode + " - " + subjectCode, 0);
-    printTextLCD(date + "  " + startTime + " - " + endTime, 1);
-    int fingerId = getFingerprintIDez();
-    if(fingerId > 0)
-    {
-      Serial.print("Attending fingerprint #"); Serial.println(fingerId);
-      auto it = FingerMap.find(fingerId);
-      int id = it->second;
-      Serial.println(id);
-      Serial.println(WiFi.status());
+  // Serial.println("Ready to scan fingerprint");
+  // delay(50);
+  // while(1){
+  //   lcd.clear();
+  //   printTextLCD(classCode + " - " + subjectCode, 0);
+  //   printTextLCD(date + "  " + startTime + " - " + endTime, 1);
+  //   int fingerId = getFingerprintIDez();
+  //   if(fingerId > 0)
+  //   {
+  //     Serial.print("Attending fingerprint #"); Serial.println(fingerId);
+  //     auto it = FingerMap.find(fingerId);
+  //     int id = it->second;
+  //     Serial.println(id);
+  //     Serial.println(WiFi.status());
 
-      getDS1307DateTime();
+  //     getDS1307DateTime();
 
-      if(WiFi.status() == WL_CONNECTED){
-        WiFiClient client;
-        HTTPClient http;
+  //     if(WiFi.status() == WL_CONNECTED){
+  //       WiFiClient client;
+  //       HTTPClient http;
 
-        const std::string url = std::string("http://") + SERVER_IP + "/api/Hello/attendance/" + std::to_string(id) + "?dateTime=" + CDateTime;
-        Serial.println(url.c_str());
-        delay(5000);
-        http.begin(client, url.c_str()); 
-        int httpCode = http.PUT("");
-        Serial.println(httpCode);
-        if(httpCode > 0){
-          if (httpCode == HTTP_CODE_OK) {
-            String payload = http.getString();
-            Serial.println("Attendance successfully: " + payload);
-            lcd.clear();
-            printTextLCD(mssv + " - " + fullName + " attended", 1);
-          }
-        }
-        else{
-          Serial.printf("[HTTP] PUT... failed, error: %s\n", http.errorToString(httpCode).c_str());
-        }
-      }
-    }
-    else if(fingerId == 0) {
-      lcd.clear();
-      printTextLCD("Finger does not match", 1);
-    }
-    delay(2000);
-    Serial.print(".");
-  }
+  //       const std::string url = std::string("http://") + SERVER_IP + "/api/Hello/attendance/" + std::to_string(id) + "?dateTime=" + CDateTime;
+  //       Serial.println(url.c_str());
+  //       delay(5000);
+  //       http.begin(client, url.c_str()); 
+  //       int httpCode = http.PUT("");
+  //       Serial.println(httpCode);
+  //       if(httpCode > 0){
+  //         if (httpCode == HTTP_CODE_OK) {
+  //           String payload = http.getString();
+  //           Serial.println("Attendance successfully: " + payload);
+  //           lcd.clear();
+  //           printTextLCD(mssv + " - " + fullName + " attended", 1);
+  //         }
+  //       }
+  //       else{
+  //         Serial.printf("[HTTP] PUT... failed, error: %s\n", http.errorToString(httpCode).c_str());
+  //       }
+  //     }
+  //   }
+  //   else if(fingerId == 0) {
+  //     lcd.clear();
+  //     printTextLCD("Finger does not match", 1);
+  //   }
+  //   delay(2000);
+  //   Serial.print(".");
+  // }
 
-  delay(3000);
+  // delay(3000);
 }
 
 
@@ -511,24 +526,22 @@ uint8_t convert_hex_to_binary(std::string hexString){
 
 
 // Fingerprint scanning
-int getFingerprintIDez() {
+int16_t getFingerprintIDez() {
   uint8_t p = finger.getImage();
-  if (p != FINGERPRINT_OK)  return -1;
-  lcd.clear();
-  printTextLCD("Scanning", 1);
+  if (p != FINGERPRINT_OK)  return -2;
+
+  printTextLCD(" ", 1);
+  printTextLCD("Scanning...", 1);
 
   p = finger.image2Tz();
   if (p != FINGERPRINT_OK)  return -1;
 
   p = finger.fingerFastSearch();
-  if (p != FINGERPRINT_OK)  return 0;
-  lcd.clear();
-  printTextLCD("Finger matched", 1);
-  delay(1000);
+  if (p != FINGERPRINT_OK)  return -1;
 
   // found a match!
-  Serial.print("\nFound ID #"); Serial.print(finger.fingerID);
-  Serial.print(" with confidence of "); Serial.println(finger.confidence);
+  // Serial.print("\nFound ID #"); Serial.print(finger.fingerID);
+  // Serial.print(" with confidence of "); Serial.println(finger.confidence);
   return finger.fingerID;
 }
 
@@ -616,7 +629,7 @@ void printTextLCD(String message, int row){
       lcd.setCursor(0, row);
       lcd.print("");
       lcd.print(message.substring(pos, pos + 16));
-      delay(300);
+      delay(200);
     }
   }
   else{
@@ -634,11 +647,11 @@ void getSchedule() {
   String semesterId = "2";
   String startDate = "2024-06-11";
   String endDate = "2024-06-13";
-  String url = "http://" + SERVER_IP + "/api/Schedule?lecturerId=" + lecturerId + "&semesterId=" + semesterId + "&startDate=" + startDate + "&endDate=" + endDate;
+  String url = "http://" + String(SERVER_IP) + "/api/Schedule?lecturerId=" + lecturerId + "&semesterId=" + semesterId + "&startDate=" + startDate + "&endDate=" + endDate;
   //http://35.221.168.89/api/Schedule?lecturerId=a829c0b5-78dc-4194-a424-08dc8640e68a&semesterId=2&startDate=2024-11-06&endDate=2024-12-06
 
-  int checkWifi = checkWifi();
-  if(checkWifi == 0){
+  int checkWifiStatus = checkWifi();
+  if(checkWifiStatus == 0){
     lcd.clear();
     printTextLCD("Cannot get schedules", 0);
     printTextLCD("Wifi not connected", 1);
@@ -664,6 +677,7 @@ void getSchedule() {
   }
 
   String payload = http.getString();
+  http.end();
   JSONVar scheduleDataArray = JSON.parse(payload);
 
   // Check whether if data is in correct format
@@ -681,6 +695,8 @@ void getSchedule() {
       return;
     }
   }
+
+  std::vector<int> loadedClassIds;
 
   // Load schedules information
   for(int i = 0; i < scheduleDataArray.length(); i++) {
@@ -705,19 +721,17 @@ void getSchedule() {
     // load class information
     Class newClass(scheduleData.classCode);
     newClass.classID = scheduleDataArray[i]["classID"];
-    classes.push_back(newClass);
+    addClass(loadedClassIds, newClass);
 
-    totalGet++;
+    ++totalGet;
     lcd.clear();
-    printTextLCD("Get schedule " + (i+1), 0);
-    delay(600);
+    printTextLCD("Get schedule " + String(totalGet), 0);
+    delay(2000);
   }
 
   lcd.clear();
-  printTextLCD("Total get: " + totalGet, 0);
+  printTextLCD("Total get: " + String(totalGet), 0);
   delay(2000);
-
-  http.end();
 }
 
 
@@ -725,14 +739,14 @@ void getSchedule() {
 void getStudent(){
   lcd.clear();
   printTextLCD("Get students information", 0);
-  delay(600);
+  delay(1000);
 
   int totalGet = 0;
 
-  String url = "http://" + SERVER_IP + "/api/Student/get-students-by-classId?isModule=true&classID=";
+  String url = "http://" + String(SERVER_IP) + "/api/Student/get-students-by-classId?isModule=true&classID=";
   //http://35.221.168.89/api/Student/get-students-by-classId?classID=1&isModule=true
-  int checkWifi = checkWifi();
-  if(checkWifi == 0){
+  int checkWifiStatus = checkWifi();
+  if(checkWifiStatus == 0){
     lcd.clear();
     printTextLCD("Cannot get students", 0);
     printTextLCD("Wifi not connected", 1);
@@ -749,7 +763,7 @@ void getStudent(){
 
   for(Class& item : classes){
     lcd.clear();
-    printTextLCD("Class " + item.classCode.c_str(), 0);
+    printTextLCD(String("From class ") + item.classCode.c_str(), 0);
     delay(1000);
 
     String apiEndpoint = url + String(item.classID);
@@ -772,6 +786,7 @@ void getStudent(){
     }
 
     String payload = http.getString();
+    http.end();
     JSONVar studentDataArray = JSON.parse(payload);
 
     // Check whether if data is in correct format
@@ -786,20 +801,20 @@ void getStudent(){
     for(int i = 0; i < studentDataArray.length(); i++) {
       Student student;
       student.studentName = (const char*)studentDataArray[i]["studentName"];
-      student.userID = (const char*)studentDataArray[i]["UserID"];
-      student.studentCode = (const char*)studentDataArray[i]["StudentCode"];
-      student.fingerprintTemplateData = (const char*)studentDataArray[i]["FingerprintTemplateData"];
+      student.userID = (const char*)studentDataArray[i]["userID"];
+      student.studentCode = (const char*)studentDataArray[i]["studentCode"];
+      student.fingerprintTemplateData = (const char*)studentDataArray[i]["fingerprintTemplateData"];
       studentInClass.push_back(student);
+      printTextLCD("Get " + String(i+1), 1);
+      delay(1000);
     }
     item.students = studentInClass;
     totalGet++;
   }
 
   lcd.clear();
-  printTextLCD("Get students in " + String(totalGet) + " classes", 0);
+  printTextLCD("Get students of " + String(totalGet) + " classes", 0);
   delay(2000);
-
-  http.end();
 }
 
 
@@ -814,7 +829,7 @@ int checkWifi(){
     WiFi.begin(STASSID, STAPSK);
     delay(500);
   }
-  printTextLCD("Connect failed");
+  printTextLCD("Connect failed", 1);
   return 0;
 }
 
@@ -846,15 +861,13 @@ void resetData(){
   finger.emptyDatabase();
   lcd.clear();
   printTextLCD("Empty database", 0);
-  delay(1000);
 
   // Empty data
   scheduleDatas.clear();
   classes.clear();
   attendances.clear();
-  lcd.clear();
-  printTextLCD("Empty in-memory datas", 0);
-  delay(1000);
+  printTextLCD("Empty in-memory datas", 1);
+  delay(2000);
 }
 
 
@@ -865,34 +878,13 @@ void getOnGoingSchedule() {
     return;
   }
 
-  getDS1307DateTime();
-
-  for(const ScheduleData& item : scheduleDatas){
-    // const char* date = item.date.c_str();
-    // const char* startTime = item.startTime.c_str();
-    // const char* endTime = item.endTime.c_str();
-
-    // // Convert Date string to Struct tm
-    // struct tm dateStruct;
-    // strptime(date, dateFormat, &tmStruct);
-    // if(checkOnDate(dateStruct)){
-    //     // Convert time string to Struct tm (startTime and endTime)
-    //     struct tm startTimeStruct, endTimeStruct;
-    //     strptime(startTime, timeFormat, &startTimeStruct);
-    //     strptime(endTime, timeFormat, &endTimeStruct);
-    //     if(checkWithinInterval(startTimeStruct, endTimeStruct)){
-    //       onGoingSchedule = &item;
-    //       lcd.clear();
-    //       printTextLCD("Get a schedule: " + item.scheduleID, 0)
-    //       return;
-    //     }
-    // }
+  for(ScheduleData& item : scheduleDatas){
     if(checkOnDate(item.dateStruct)){
       if(checkWithinInterval(item.startTimeStruct, item.endTimeStruct)){
         onGoingSchedule = &item;
         lcd.clear();
-        printTextLCD("Get a schedule: " + item.scheduleID, 0);
-        delay(1000);
+        printTextLCD("Get a schedule: " + String(item.scheduleID), 0);
+        delay(2000);
         return;
       }
     }
@@ -942,7 +934,7 @@ void writeFingerprintTemplateToSensor(){
   printTextLCD("Uploading fingerprint ...", 0);
   delay(500);
 
-  uint8_t classID = onGoingSchedule.classID;
+  uint8_t classID = onGoingSchedule->classID;
 
   for(const Class& item : classes){
     if(item.classID == classID){
@@ -966,14 +958,16 @@ void writeFingerprintTemplateToSensor(){
         if(finger.write_template_to_sensor(template_buf_size,fingerTemplate)){
           if(finger.storeModel(++i) == FINGERPRINT_OK){
             totalUploadedFingerprint++;
-            Attendance attendance(i, onGoingSchedule.scheduleID, student.userID);
+            Attendance attendance(i, onGoingSchedule->scheduleID, student.userID, student.studentCode);
             attendances.push_back(attendance);
           }
         }
       }
 
+      fingerprintIsStored = true;
+
       printTextLCD(" ", 1);
-      printTextLCD("uploaded " + totalUploadedFingerprint + "/" + item.students.size(), 1);
+      printTextLCD("uploaded " + String(totalUploadedFingerprint) + "/" + item.students.size(), 1);
       delay(2000);
 
       return;
@@ -986,4 +980,62 @@ void writeFingerprintTemplateToSensor(){
 
 
 
+void addClass(std::vector<int>& classIds, const Class& newClass){
+  for(const int classID : classIds){
+    if(classID == newClass.classID){
+      return;
+    }
+  }
+  classes.push_back(newClass);
+  classIds.push_back(newClass.classID);
+}
+
+
+void attendanceSession(uint32_t& duration){
+  unsigned long startSession = millis();
+  while(1){
+    unsigned long now = millis();
+    if(now > (startSession + duration)){
+      return;
+    }
+
+    lcd.clear();
+    printTextLCD((onGoingSchedule->classCode + " - " + onGoingSchedule->subjectCode).c_str(), 0);
+    printTextLCD((onGoingSchedule->date + "  " + onGoingSchedule->startTime + " - " + onGoingSchedule->endTime).c_str(), 1);
+
+    // Scanning to mark attendance
+    int16_t fingerId = getFingerprintIDez();
+    if(fingerId > 0){
+      auto it = std::find_if(attendances.begin(), attendances.end(), {
+        return i.storedFingerID == fingerId;
+      });
+      if (it != attendances.end()) {
+        it->attended = true;
+        it->attendanceTime = rtc.now();
+        printTextLCD(" ", 1);
+        printTextLCD(it->studentCode.c_str() + " attended", 1);
+        delay(2000);
+      }
+    }
+    else if(fingerId == -1){
+      printTextLCD(" ", 1);
+      printTextLCD("Finger does not matched", 1);
+      delay(2000);
+    }
+  }
+}
+
+
+void getDurationInSeconds(const struct tm& startTime, const struct tm& endTime, uint32_t& duration){
+  uint32_t start = (startTime.tm_hour * 60 + startTime.tm_min) * 60 + startTime.tm_sec;
+  uint32_t end = (endTime.tm_hour * 60 + endTime.tm_min) * 60 + endTime.tm_sec;
+  int32_t timeSpan = end - start;
+
+  if(timeSpan > 0){
+    duration = timeSpan;
+  }
+  else{
+    duration = 24 * 60 * 60 - start + end;
+  }
+}
 
