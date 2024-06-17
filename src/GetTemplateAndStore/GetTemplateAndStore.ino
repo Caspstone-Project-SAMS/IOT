@@ -19,11 +19,11 @@
 #include <algorithm>
 
 //=========================Macro define=============================
-#define SERVER_IP "35.221.168.89"
+#define SERVER_IP "34.81.224.196"
 
 #ifndef STASSID
-#define STASSID "Nhim"
-#define STAPSK "1357924680"
+#define STASSID "oplus_co_apcnzr" //"FPTU_Library" //"Nhim" //"Garage Coffee" //
+#define STAPSK "vhhd3382" //"12345678" //"1357924680" //"garageopen24h" //
 #endif
 
 #define Finger_Rx 0 //D3 in ESP8266 is GPIO0
@@ -92,6 +92,21 @@ class Attendance {
       attended = false;
     }
 };
+
+class AttendanceObject {
+  public:
+    uint8_t ScheduleID;
+    uint8_t AttendanceStatus;
+    std::string AttendanceTime;
+    std::string StudentID;
+
+    AttendanceObject(uint8_t scheduleID, uint8_t attendanceStatus, std::string attendanceTime, std::string studentID){
+      ScheduleID = scheduleID;
+      AttendanceStatus = attendanceStatus;
+      AttendanceTime = attendanceTime;
+      StudentID = studentID;
+    }
+};
 //=======================================================================
 
 
@@ -106,6 +121,12 @@ const char* dateTimeFormat = "%Y-%m-%d %H:%M:%S";
 std::vector<ScheduleData> scheduleDatas;
 std::vector<Class> classes;
 std::vector<Attendance> attendances;
+
+// Whether if update to server or not
+std::vector<AttendanceObject> unUpadatedAttendances;
+bool attedancesUpdated = true;
+
+bool displayAttendanceSession = true;
 
 // On-going schedule
 ScheduleData* onGoingSchedule = nullptr;
@@ -301,7 +322,7 @@ void loop() {
 
 
   // Store fingerprint to sensor if not write and (on-going schedule is avialable - check inside the called method)
-  if(!fingerprintIsStored){
+  if(!fingerprintIsStored && onGoingSchedule != nullptr){
     writeFingerprintTemplateToSensor();
   }
 
@@ -325,184 +346,6 @@ void loop() {
     printTextLCD(Time, 1);
     delay(1000);
   }
-
-
-  // if((WiFi.status() == WL_CONNECTED)) {
-  //   lcd.clear();
-  //   printTextLCD("Loading info...", 0);
-
-  //   // Get fingerprint from server
-  //   http.begin(client, "http://" SERVER_IP "/api/Hello/fingerprint"); 
-
-  //   Serial.print("Download fingerprint templates from server using [HTTP] GET...\n");
-  //   int httpCode = http.GET();
-
-  //   if(httpCode > 0) {
-  //     Serial.printf("[HTTP] GET... code: %d\n", httpCode);
-
-  //     // Server return OK
-  //     if (httpCode == HTTP_CODE_OK) {
-  //       lcd.clear();
-  //       printTextLCD("Get OK", 0);
-
-  //       String payload = http.getString();
-  //       Serial.println("received payload:\n<<");
-
-  //       // Data get from API
-  //       Serial.println("Working with Json String.......");
-  //       JSONVar fingerDataArray = JSON.parse(payload);
-
-  //       // Store fingerprint data in microcontroller
-  //       Serial.println("Create an array of FingerData to store list of fingerprint datas");
-  //       FingerData fingerDatas[fingerDataArray.length()];
-
-  //       Serial.println("Iterate through result get form API and store it to the array of FingerData");
-  //       for(int i = 0; i < fingerDataArray.length(); i++) {
-  //         if(JSON.typeof(fingerDataArray[i])=="object"){
-  //           FingerData fingerData;
-  //           fingerData.id = fingerDataArray[i]["id"];
-  //           fingerData.fingerprintTemplate = (const char*)fingerDataArray[i]["finger"];
-  //           fingerDatas[i] = fingerData;
-  //           Serial.print("Get "); Serial.printf("%d", i); Serial.println();
-  //           delay(500);
-  //         }
-  //       }
-
-  //       delay(1000);
-
-  //       // Display again
-  //       Serial.println("Display template again");
-  //       const int fingerDataArrayLength = sizeof(fingerDatas) / sizeof(fingerDatas[0]);
-  //       Serial.printf("Size of array: %d\n", fingerDataArrayLength);
-  //       for(int i = 0; i < fingerDataArrayLength; i++){
-  //         Serial.printf("Fingerprint Template %d: ", fingerDatas[i].id); Serial.println(fingerDatas[i].fingerprintTemplate.c_str());
-  //         delay(1000);
-  //       }
-
-  //       delay(2000);
-
-  //       //Again and write to sensor
-  //       Serial.println("Display template in decimal format (which represent 8-bits/1-byte data)");
-  //       Serial.println("Then write to sensor\n");
-  //       delay(2000);
-  //       for(int i = 0; i < fingerDataArrayLength; i++){
-
-  //         Serial.println("\nConverting template in 2-digits hexa string to 8-bits interger.....");
-  //         std::string fingertemplate = fingerDatas[i].fingerprintTemplate;
-
-
-  //         uint8_t fingerTemplate[512];
-  //         memset(fingerTemplate, 0xff, 512);
-  //         for (int i = 0; i < 512; i++) {
-  //           // Extract the current pair of characters
-  //           char hexPair[2]; // Two characters + null terminator
-  //           hexPair[0] = fingertemplate[2 * i];
-  //           hexPair[1] = fingertemplate[2 * i + 1];
-  //           // Convert the pair to a uint8_t value
-  //           std::string hexPairString(hexPair, hexPair + 2);
-  //           fingerTemplate[i] = convert_hex_to_binary(hexPairString);
-  //         }
-
-  //         Serial.print("Template in decimal format: ");
-  //         for (int i=0; i<512; i++)
-  //         {
-  //           Serial.print(fingerTemplate[i]); Serial.print(" ");
-  //         }
-
-  //         //Write to sensor's buffer
-  //         if (finger.write_template_to_sensor(template_buf_size,fingerTemplate)) { //telling the sensor to download the template data to it's char buffer from upper computer (this microcontroller's "fingerTemplate" buffer)
-  //           Serial.println("now writing to sensor buffer 1...");
-  //         } else {
-  //           Serial.println("writing to sensor failed");
-  //           return;
-  //         }
-
-  //         delay(500);
-  //         Serial.println("Storing......");
-  //         delay(500);
-
-  //         if (finger.storeModel(i+1) == FINGERPRINT_OK) { //saving the template against the ID you entered or manually set
-  //           Serial.print("Successfully stored against ID#");Serial.println(i);
-  //           lcd.clear();
-  //           printTextLCD("Store " + String(i), 0);
-  //           fingerDatas[i].fingerId = i+1;
-  //           FingerMap[i+1] = fingerDatas[i].id;
-  //         } else {
-  //           Serial.println("Storing error");
-  //           return ;
-  //         }
-  //       }
-  //     }
-
-  //   } 
-  //   else {
-  //     Serial.printf("[HTTP] GET... failed, error: %s\n", http.errorToString(httpCode).c_str());
-  //     printTextLCD("Got error", 0);
-  //   }
-
-  //   delay(2000);
-
-  //   http.end();
-  // }
-
-  // Scan fingerprint
-  // String classCode = "NET1604";
-  // String subjectCode = "SWP391";
-  // String date = "09/06/2024";
-  // String startTime = "14:00";
-  // String endTime = "16:00";
-  // String mssv = "SE161404";
-  // String fullName = "Le Dang Khoa";
-
-  // Serial.println("Ready to scan fingerprint");
-  // delay(50);
-  // while(1){
-  //   lcd.clear();
-  //   printTextLCD(classCode + " - " + subjectCode, 0);
-  //   printTextLCD(date + "  " + startTime + " - " + endTime, 1);
-  //   int fingerId = getFingerprintIDez();
-  //   if(fingerId > 0)
-  //   {
-  //     Serial.print("Attending fingerprint #"); Serial.println(fingerId);
-  //     auto it = FingerMap.find(fingerId);
-  //     int id = it->second;
-  //     Serial.println(id);
-  //     Serial.println(WiFi.status());
-
-  //     getDS1307DateTime();
-
-  //     if(WiFi.status() == WL_CONNECTED){
-  //       WiFiClient client;
-  //       HTTPClient http;
-
-  //       const std::string url = std::string("http://") + SERVER_IP + "/api/Hello/attendance/" + std::to_string(id) + "?dateTime=" + CDateTime;
-  //       Serial.println(url.c_str());
-  //       delay(5000);
-  //       http.begin(client, url.c_str()); 
-  //       int httpCode = http.PUT("");
-  //       Serial.println(httpCode);
-  //       if(httpCode > 0){
-  //         if (httpCode == HTTP_CODE_OK) {
-  //           String payload = http.getString();
-  //           Serial.println("Attendance successfully: " + payload);
-  //           lcd.clear();
-  //           printTextLCD(mssv + " - " + fullName + " attended", 1);
-  //         }
-  //       }
-  //       else{
-  //         Serial.printf("[HTTP] PUT... failed, error: %s\n", http.errorToString(httpCode).c_str());
-  //       }
-  //     }
-  //   }
-  //   else if(fingerId == 0) {
-  //     lcd.clear();
-  //     printTextLCD("Finger does not match", 1);
-  //   }
-  //   delay(2000);
-  //   Serial.print(".");
-  // }
-
-  // delay(3000);
 }
 
 
@@ -529,9 +372,6 @@ uint8_t convert_hex_to_binary(std::string hexString){
 int16_t getFingerprintIDez() {
   uint8_t p = finger.getImage();
   if (p != FINGERPRINT_OK)  return -2;
-
-  printTextLCD(" ", 1);
-  printTextLCD("Scanning...", 1);
 
   p = finger.image2Tz();
   if (p != FINGERPRINT_OK)  return -1;
@@ -629,7 +469,7 @@ void printTextLCD(String message, int row){
       lcd.setCursor(0, row);
       lcd.print("");
       lcd.print(message.substring(pos, pos + 16));
-      delay(200);
+      delay(350);
     }
   }
   else{
@@ -724,9 +564,6 @@ void getSchedule() {
     addClass(loadedClassIds, newClass);
 
     ++totalGet;
-    lcd.clear();
-    printTextLCD("Get schedule " + String(totalGet), 0);
-    delay(2000);
   }
 
   lcd.clear();
@@ -813,23 +650,25 @@ void getStudent(){
   }
 
   lcd.clear();
-  printTextLCD("Get students of " + String(totalGet) + " classes", 0);
+  printTextLCD("Number of classes: " + String(classes.size()), 0);
+  printTextLCD("Get students of " + String(totalGet) + " classes", 1);
   delay(2000);
 }
 
 
 
 int checkWifi(){
-  for(int i = 1; i<= 5; i++){
-    if(WiFi.status() == WL_CONNECTED){
-      return 1;
-    }
-    lcd.clear();
-    printTextLCD("Attempting to connect wifi: " + i, 0);
-    WiFi.begin(STASSID, STAPSK);
-    delay(500);
+  // for(int i = 1; i<= 5; i++){
+    
+  //   lcd.clear();
+  //   printTextLCD("Attempting to connect wifi: " + String(1), 0);
+  //   WiFi.begin(STASSID, STAPSK);
+  //   delay(500);
+  // }
+  // printTextLCD("Connect failed", 1);
+  if(WiFi.status() == WL_CONNECTED){
+    return 1;
   }
-  printTextLCD("Connect failed", 1);
   return 0;
 }
 
@@ -889,8 +728,6 @@ void getOnGoingSchedule() {
       }
     }
   }
-
-  onGoingSchedule = nullptr;
 }
 
 
@@ -911,25 +748,44 @@ bool checkOnDate(const struct tm& date){
 
 
 bool checkWithinInterval(const struct tm& startTime, const struct tm& endTime){
-  if(startTime.tm_hour < hour_ && endTime.tm_hour > hour_){
-    return true;
+  uint32_t start = (startTime.tm_hour * 60 + startTime.tm_min) * 60 + startTime.tm_sec;
+  uint32_t end = (endTime.tm_hour * 60 + endTime.tm_min) * 60 + endTime.tm_sec;
+  uint32_t now = (hour_ * 60 + minute_) * 60 + second_;
+  
+  if(end < start){
+    if(now > start || now < end){
+      return true;
+    }
   }
-  if(startTime.tm_hour == hour_ && startTime.tm_min <= minute_){
-    return true;
-  }
-  if(endTime.tm_hour == hour_ && endTime.tm_min >= minute_){
-    return true;
+  else{
+    if(start < now && now < end){
+      return true;
+    }
   }
   return false;
+
+  // if(startTime.tm_hour < hour_ && endTime.tm_hour > hour_){
+  //   return true;
+  // }
+  // if(startTime.tm_hour == endTime.tm_hour){
+  //   if(startTime.tm_min <= minute_ && endTime.tm_min >= minute_){
+  //     return true;
+  //   }
+  // }
+  // else{
+  //   if(startTime.tm_hour == hour_ && startTime.tm_min <= minute_){
+  //   return true;
+  //   }
+  //     if(endTime.tm_hour == hour_ && endTime.tm_min >= minute_){
+  //     return true;
+  //   }
+  // }
+  // return false;
 }
 
 
 
 void writeFingerprintTemplateToSensor(){
-  if(onGoingSchedule == nullptr){
-    return;
-  }
-
   lcd.clear();
   printTextLCD("Uploading fingerprint ...", 0);
   delay(500);
@@ -938,12 +794,13 @@ void writeFingerprintTemplateToSensor(){
 
   for(const Class& item : classes){
     if(item.classID == classID){
-      printTextLCD("From class " + classID, 1);
-      delay(500);
+      printTextLCD(" ", 1);
+      printTextLCD("From class " + String(classID) + " have " + String(item.students.size()) + " students", 1);
+      delay(2000);
 
       int totalUploadedFingerprint = 0;
+      int count = 1;
       for(const Student& student : item.students){
-        int i = 0;
         uint8_t fingerTemplate[512];
         memset(fingerTemplate, 0xff, 512);
         for (int i = 0; i < 512; i++) {
@@ -955,11 +812,13 @@ void writeFingerprintTemplateToSensor(){
           std::string hexPairString(hexPair, hexPair + 2);
           fingerTemplate[i] = convert_hex_to_binary(hexPairString);
         }
+
         if(finger.write_template_to_sensor(template_buf_size,fingerTemplate)){
-          if(finger.storeModel(++i) == FINGERPRINT_OK){
-            totalUploadedFingerprint++;
-            Attendance attendance(i, onGoingSchedule->scheduleID, student.userID, student.studentCode);
+          if(finger.storeModel(count) == FINGERPRINT_OK){
+            Attendance attendance(count, onGoingSchedule->scheduleID, student.userID, student.studentCode);
             attendances.push_back(attendance);
+            totalUploadedFingerprint++;
+            count++;
           }
         }
       }
@@ -967,6 +826,7 @@ void writeFingerprintTemplateToSensor(){
       fingerprintIsStored = true;
 
       printTextLCD(" ", 1);
+      printTextLCD("uploaded " + String(totalUploadedFingerprint) + "/" + item.students.size(), 1);
       printTextLCD("uploaded " + String(totalUploadedFingerprint) + "/" + item.students.size(), 1);
       delay(2000);
 
@@ -991,39 +851,58 @@ void addClass(std::vector<int>& classIds, const Class& newClass){
 }
 
 
+
 void attendanceSession(uint32_t& duration){
-  unsigned long startSession = millis();
+  unsigned long timeStamp = millis() + duration * 1000;
   while(1){
     unsigned long now = millis();
-    if(now > (startSession + duration)){
+    if(now > timeStamp){
+      stopAttendanceSession();
       return;
     }
 
-    lcd.clear();
-    printTextLCD((onGoingSchedule->classCode + " - " + onGoingSchedule->subjectCode).c_str(), 0);
-    printTextLCD((onGoingSchedule->date + "  " + onGoingSchedule->startTime + " - " + onGoingSchedule->endTime).c_str(), 1);
+    if(!attedancesUpdated){
+      updateAttendanceAgain();
+    }
+
+    if(displayAttendanceSession){
+      lcd.clear();
+      printTextLCD((onGoingSchedule->classCode + " - " + onGoingSchedule->subjectCode).c_str(), 0);
+      printTextLCD((onGoingSchedule->startTime.substr(0, 5) + "-" + onGoingSchedule->endTime.substr(0, 5)).c_str(), 1);
+      displayAttendanceSession = false;
+    }
 
     // Scanning to mark attendance
     int16_t fingerId = getFingerprintIDez();
     if(fingerId > 0){
-      auto it = std::find_if(attendances.begin(), attendances.end(), {
-        return i.storedFingerID == fingerId;
-      });
+      auto is_matched = [fingerId](const auto& obj){ return obj.storedFingerID == fingerId; };
+      auto it = std::find_if(attendances.begin(), attendances.end(), is_matched);
       if (it != attendances.end()) {
-        it->attended = true;
-        it->attendanceTime = rtc.now();
-        printTextLCD(" ", 1);
-        printTextLCD(it->studentCode.c_str() + " attended", 1);
-        delay(2000);
+        if(it->attended == false){
+          it->attended = true;
+          it->attendanceTime = rtc.now();
+          printTextLCD(" ", 1);
+          printTextLCD((it->studentCode + " attended").c_str(), 1);
+          updateAttendance(*it);
+          delay(2000);
+        }
+        else{
+          printTextLCD(" ", 1);
+          printTextLCD((it->studentCode + " already attended").c_str(), 1);
+          delay(2000);
+        }
       }
+      displayAttendanceSession = true;
     }
     else if(fingerId == -1){
       printTextLCD(" ", 1);
       printTextLCD("Finger does not matched", 1);
       delay(2000);
+      displayAttendanceSession = true;
     }
   }
 }
+
 
 
 void getDurationInSeconds(const struct tm& startTime, const struct tm& endTime, uint32_t& duration){
@@ -1038,4 +917,77 @@ void getDurationInSeconds(const struct tm& startTime, const struct tm& endTime, 
     duration = 24 * 60 * 60 - start + end;
   }
 }
+
+
+
+void stopAttendanceSession() {
+  onGoingSchedule = nullptr;
+  finger.emptyDatabase();
+  fingerprintIsStored = false;
+}
+
+
+
+void updateAttendance(Attendance& attendance) {
+
+  // Get datetime string
+  char buf[] = "YYYY-MM-DD hh:mm:ss";
+  String dateTime = attendance.attendanceTime.toString(buf);
+  dateTime[10] = 'T';
+
+  int checkWifiStatus =  checkWifi();
+  if(checkWifiStatus == 0) {
+    AttendanceObject attedanceObject(attendance.scheduleID, 1, dateTime.c_str(), attendance.userID);
+    unUpadatedAttendances.push_back(attedanceObject);
+    attedancesUpdated = false; 
+    return;
+  }
+
+  //2024-06-11T16:29:24
+  //http://35.221.168.89/api/Attendance/update-attendance-status?scheduleID=5&attendanceStatus=3&attendanceTime=2024-06-11T16%3A29%3A24&studentID=fa00c1a6-0a14-435c-a421-08dc8640e68a
+  String url = "http://" + String(SERVER_IP) + "/api/Attendance/update-attendance-status?attendanceStatus=1&scheduleID=" + String(attendance.scheduleID) + "&studentID=" + attendance.userID.c_str() + "&attendanceTime=" + dateTime;
+  http.begin(client, url);
+  int httpCode = http.PUT("");
+  http.end();
+}
+
+
+
+void updateAttendanceAgain() {
+  int checkWifiStatus =  checkWifi();
+  if(checkWifiStatus == 0) {
+    return;
+  }
+  if(unUpadatedAttendances.empty()){
+    attedancesUpdated = true;
+    return;
+  }
+
+  //http://35.221.168.89/api/Attendance/update-list-student-status
+  String url = "http://" + String(SERVER_IP) + "/api/Attendance/update-list-student-status";
+
+  // Create a payload string
+  JSONVar attendanceArray;
+  uint8_t index = 0;
+  for(AttendanceObject& item : unUpadatedAttendances){
+    JSONVar attendanceObject;
+    attendanceObject["ScheduleID"] = item.ScheduleID;
+    attendanceObject["StudentID"] = item.StudentID.c_str();
+    attendanceObject["AttendanceStatus"] = item.AttendanceStatus;
+    attendanceObject["AttendanceTime"] = item.AttendanceTime.c_str();
+    attendanceArray[index++] = attendanceObject;
+  }
+  String payload = JSON.stringify(attendanceArray);
+
+  http.begin(client, url);
+  http.addHeader("Content-Type", "application/json");
+  int httpCode = http.PUT(payload);
+  if(httpCode == HTTP_CODE_OK){
+    unUpadatedAttendances.clear(); // Makes it empty
+    attedancesUpdated = true;
+  }
+
+  http.end();
+}
+
 

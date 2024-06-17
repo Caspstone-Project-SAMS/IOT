@@ -1,20 +1,113 @@
 #include <Adafruit_Fingerprint.h>
+
 #include <ESP8266WiFi.h>
 #include <ESP8266HTTPClient.h>
+#include <ArduinoWebsockets.h>
 
+#include <LiquidCrystal_I2C.h>
+#include <RTClib.h>
+
+#include <WiFiUdp.h>
+#include <NTPClient.h>               
+#include <TimeLib.h>
+
+
+using namespace websockets;
+
+
+//=========================Macro define=============================
 #define SERVER_IP "35.221.168.89"
+#define WEBSOCKETS_SERVER_HOST = "34.81.224.196"
+#define WEBSOCKETS_SERVER_PORT = "80"
+#define WEBSOCKETS_PROTOCOL = "ws"
 
 #ifndef STASSID
 // #define STASSID "FPTU_Student" //Nhim
 // #define STAPSK "12345678" //1357924680
 #define STASSID "Nhim"
 #define STAPSK "1357924680"
+// #define STASSID "Garage Coffee"
+// #define STAPSK "garageopen24h"
 #endif
 
 #define Finger_Rx 0 //D3 in ESP8266 is GPIO0
 #define Finger_Tx 2 //D4 is GPIO2
+//====================================================================
+
+
+
+//===========================Memory variables declaration here===========================
+// Fingerprint sesnor
 SoftwareSerial mySerial(Finger_Rx, Finger_Tx);
 Adafruit_Fingerprint finger = Adafruit_Fingerprint(&mySerial);
+int template_buf_size = 512;
+//==================================
+
+
+// Websocket
+WebsocketsClient client;
+//==================================
+
+
+// DateTime information, NTP client
+WiFiUDP ntpUDP;
+NTPClient timeClient(ntpUDP, "asia.pool.ntp.org", 25200, 60000);
+char Time[] = "TIME:00:00:00   ";
+char Date[] = "DATE:00-00-2000 ";
+char CDateTime[] = "0000-00-00T00:00:00";
+byte second_, minute_, hour_, day_, month_;
+int year_;
+//================================
+
+
+// DS1307 real-time
+RTC_DS1307 rtc;
+bool haveRTC = false;
+static unsigned long lastUpdate = 0;
+static const unsigned long intervalTime = 2073600000; //24days
+//================================
+
+
+// LCD I2C
+int lcdColumns = 16;
+int lcdRows = 2;
+LiquidCrystal_I2C lcd(0x27, lcdColumns, lcdRows);
+//================================
+
+
+// Http Client
+WiFiClient client;
+HTTPClient http;
+//================================
+
+
+//========================Set up code==================================
+void conenctLCD() {
+  lcd.init();
+  lcd.backlight();
+}
+
+void connectFingerprintSensor() {
+  Serial.println("\n\nAdafruit Fingerprint sensor enrollment");
+  finger.begin(57600);
+  if (finger.verifyPassword()) {
+    Serial.println("Found fingerprint sensor!");
+  } else {
+    Serial.println("Did not find fingerprint sensor :(");
+    while (1) { delay(1); }
+  }
+
+  Serial.println(F("Reading sensor parameters"));
+  finger.getParameters();
+  Serial.print(F("Status: 0x")); Serial.println(finger.status_reg, HEX);
+  Serial.print(F("Sys ID: 0x")); Serial.println(finger.system_id, HEX);
+  Serial.print(F("Capacity: ")); Serial.println(finger.capacity);
+  Serial.print(F("Security level: ")); Serial.println(finger.security_level);
+  Serial.print(F("Device address: ")); Serial.println(finger.device_addr, HEX);
+  Serial.print(F("Packet len: ")); Serial.println(finger.packet_len);
+  Serial.print(F("Baud rate: ")); Serial.println(finger.baud_rate);
+}
+//===================================================================
 
 void setup() {
   Serial.begin(9600);
