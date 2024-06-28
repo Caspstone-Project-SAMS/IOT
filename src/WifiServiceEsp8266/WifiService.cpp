@@ -15,7 +15,7 @@ int WifiServiceClass::connect(){
   ECHOLN("[WifiServiceClass][connect] Read wifi SSID and PASS from EEPROM");
   String ssid = EEPROMH.read(EEPROM_WIFI_SSID_START, EEPROM_WIFI_SSID_END);
   String pass = EEPROMH.read(EEPROM_WIFI_PASS_START, EEPROM_WIFI_PASS_END);
-  return conenct(ssid, pass);
+  return connect(ssid, pass);
 }
 
 int WifiServiceClass::connect(const String &ssid, const String &pass, boolean isNew){

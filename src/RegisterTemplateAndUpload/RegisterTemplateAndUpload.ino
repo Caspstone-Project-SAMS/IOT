@@ -4,6 +4,9 @@
 #include <ESP8266HTTPClient.h>
 #include <ArduinoWebsockets.h>
 
+#include <Arduino_JSON.h>
+#include <string>
+
 #include <LiquidCrystal_I2C.h>
 #include <RTClib.h>
 
@@ -14,18 +17,32 @@
 
 using namespace websockets;
 
+//=========================Class definition=========================
+class FingerData{
+  public:
+    std::string fingerprintTemplate;
+    std::string Content;
+
+    FingerData(std::string _fingerprintTemplate, std::string _Content){
+      fingerprintTemplate = _fingerprintTemplate;
+      Content = _Content;
+    }
+};
+//===================================================================
+
+
 
 //=========================Macro define=============================
-#define SERVER_IP "35.221.168.89"
-#define WEBSOCKETS_SERVER_HOST = "34.81.224.196"
-#define WEBSOCKETS_SERVER_PORT = "80"
-#define WEBSOCKETS_PROTOCOL = "ws"
+#define SERVER_IP "34.81.224.196"
+#define WEBSOCKETS_SERVER_HOST "34.81.224.196"
+#define WEBSOCKETS_SERVER_PORT 80
+#define WEBSOCKETS_PROTOCOL "ws"
 
 #ifndef STASSID
-// #define STASSID "FPTU_Student" //Nhim
-// #define STAPSK "12345678" //1357924680
-#define STASSID "Nhim"
-#define STAPSK "1357924680"
+#define STASSID "FPTU_Library" //Nhim
+#define STAPSK "12345678" //1357924680
+// #define STASSID "Nhim"
+// #define STAPSK "1357924680"
 // #define STASSID "Garage Coffee"
 // #define STAPSK "garageopen24h"
 #endif
@@ -37,6 +54,12 @@ using namespace websockets;
 
 
 //===========================Memory variables declaration here===========================
+// DateTime format
+const char* dateFormat = "%Y-%m-%d";
+const char* timeFormat = "%H:%M:%S";
+const char* dateTimeFormat = "%Y-%m-%d %H:%M:%S";
+
+
 // Fingerprint sesnor
 SoftwareSerial mySerial(Finger_Rx, Finger_Tx);
 Adafruit_Fingerprint finger = Adafruit_Fingerprint(&mySerial);
@@ -45,7 +68,7 @@ int template_buf_size = 512;
 
 
 // Websocket
-WebsocketsClient client;
+WebsocketsClient websocketClient;
 //==================================
 
 
@@ -76,10 +99,14 @@ LiquidCrystal_I2C lcd(0x27, lcdColumns, lcdRows);
 
 
 // Http Client
-WiFiClient client;
+WiFiClient wifiClient;
 HTTPClient http;
 //================================
 
+
+// Is registering fingerprint template?
+bool isRegisteringFingerprintTemplate = false;
+String content;
 
 //========================Set up code==================================
 void conenctLCD() {
@@ -107,38 +134,10 @@ void connectFingerprintSensor() {
   Serial.print(F("Packet len: ")); Serial.println(finger.packet_len);
   Serial.print(F("Baud rate: ")); Serial.println(finger.baud_rate);
 }
-//===================================================================
 
-void setup() {
-  Serial.begin(9600);
+void conenctWifi() {
   delay(100);
-  
-  // Connect to R308 fingerprint sensor
-  Serial.println("\n\nAdafruit Fingerprint sensor enrollment");
-  finger.begin(57600);
-  if (finger.verifyPassword()) {
-    Serial.println("Found fingerprint sensor!");
-  } else {
-    Serial.println("Did not find fingerprint sensor :(");
-    while (1) { delay(1); }
-  }
-
-  Serial.println(F("Reading sensor parameters"));
-  finger.getParameters();
-  Serial.print(F("Status: 0x")); Serial.println(finger.status_reg, HEX);
-  Serial.print(F("Sys ID: 0x")); Serial.println(finger.system_id, HEX);
-  Serial.print(F("Capacity: ")); Serial.println(finger.capacity);
-  Serial.print(F("Security level: ")); Serial.println(finger.security_level);
-  Serial.print(F("Device address: ")); Serial.println(finger.device_addr, HEX);
-  Serial.print(F("Packet len: ")); Serial.println(finger.packet_len);
-  Serial.print(F("Baud rate: ")); Serial.println(finger.baud_rate);
-
-  // Connet to wifi
-  delay(100);
-  Serial.println();
-  Serial.println();
-  Serial.println();
-  Serial.println("================================");
+  Serial.println("\n\n\n================================");
   Serial.println("Connecting to Wifi");
 
   WiFi.begin(STASSID, STAPSK);
@@ -149,53 +148,304 @@ void setup() {
   Serial.print("Connected! IP address: "); Serial.println(WiFi.localIP());
 }
 
-void loop() {
-  Serial.println("\n\nReady to enroll a fingerprint!");
-  Serial.println("Press 'Y' key to continue");
-  while(1) {
-    if (Serial.available() && (Serial.read() == 'Y'))
-    {
-      break;
+void connectDS1307() {
+  bool connectToRTC = false;
+  while(!connectToRTC){
+    delay(500);
+    if(rtc.begin()){
+      connectToRTC = true;
+      haveRTC = true;
     }
   }
+}
 
-  while(! getFingerprintEnroll());
-  Serial.println("\n\n------------------------------------");
-  String fingerprintTemplate = getFingerprintTemplate();
+void connectWebSocket() {
 
-  // Wait for wifi conenction (check again)
-  if((WiFi.status() == WL_CONNECTED) && fingerprintTemplate != "") {
-    WiFiClient client;
-    HTTPClient http;
+  // run callback when events are occuring
+  websocketClient.onEvent(onEventsCallback);
 
-    http.begin(client, "http://" SERVER_IP "/api/Hello/fingerprint"); 
-    http.addHeader("Content-Type", "application/json");
+  // run callback when messages are received
+  websocketClient.onMessage([&](WebsocketsMessage message) {
+    Serial.print("Got Message: ");
+    //Serial.println(static_cast<std::underlying_type<MessageType>::type>(message.type()));
 
-    Serial.print("Upload new fingerprint template to server using [HTTP] POST...\n");
-    int httpCode = http.POST("{\"fingerprintTemplate\":\"" + fingerprintTemplate +  "\"}");
-
-    if (httpCode > 0) {
-      Serial.printf("[HTTP] POST... code: %d\n", httpCode);
-
-      // Server return OK
-      if (httpCode == HTTP_CODE_OK) {
-        const String& payload = http.getString();
-        Serial.println("received payload:\n<<");
-        Serial.println(payload);
-        Serial.println(">>");
+    if(message.isText()){
+      // Get data from here
+      const char* data = message.c_str();
+      JSONVar message = JSON.parse(data);
+      String event = message["Event"];
+      String sendData = message["Data"];
+      if(event == "RegisterFingerprint"){
+        isRegisteringFingerprintTemplate = true;
+        content = sendData;
       }
-    } else {
-      Serial.printf("[HTTP] POST... failed, error: %s\n", http.errorToString(httpCode).c_str());
     }
+  });
 
-    http.end();
+  bool connected = websocketClient.connect(WEBSOCKETS_SERVER_HOST, WEBSOCKETS_SERVER_PORT, "/ws?isRegisterModule=true");
+  if(!connected){
+    while(1){
+      delay(500);
+    }
   }
+  printTextLCD("Connected", 1);
+}
+//===================================================================
+
+void setup() {
+  Serial.begin(9600);
+  delay(100);
+
+  // Connect I2C LCD
+  conenctLCD();
+  delay(2000);
+
+  // Connect to DS1307 (RTC object)
+  lcd.clear();
+  printTextLCD("Connect RTC", 0);
+  connectDS1307();
+  delay(2000);
+
+  // Connect to R308 fingerprint sensor
+  lcd.clear();
+  printTextLCD("Connect Fingerprint Sensor", 0);
+  connectFingerprintSensor();
+  delay(2000);
+
+  // Connet to wifi
+  lcd.clear();
+  printTextLCD("Connect Wifi", 0);
+  conenctWifi();
+  delay(2000);
+
+  // Connect to ntp server;
+  lcd.clear();
+  printTextLCD("Connect NTP server", 0);
+  timeClient.begin();
+  delay(2000);
+
+  // Connect to websockets
+  lcd.clear();
+  printTextLCD("Connect Websockets", 0);
+  connectWebSocket();
+  delay(2000);
+
+  // Prepare data
+  lcd.clear();
+  printTextLCD("Prepare data", 0);
+  delay(1000);
+  // Setup datetime for module
+  lcd.clear();
+  printTextLCD("Setup DateTime", 0);
+  delay(1000);
+  if(haveRTC){
+    lcd.clear();
+    printTextLCD("RTC found", 0);
+    printTextLCD("Setup RTC", 0);
+    setupDS1307DateTime();
+  }
+  else{
+    lcd.clear();
+    printTextLCD("RTC not found", 0);
+    while(1);
+  }
+
+  //Reset data
+  resetData();
+  
+  lcd.clear();
+  printTextLCD("Setup done!!!", 0);
+  delay(2000);
+}
+
+void loop() {
+
+  int checkUpdateDateTimeStatus = checkUpdateDateTime();
+  if(checkUpdateDateTimeStatus == 1){
+    setupDS1307DateTime();
+  }
+
+  // UpdateTime continuously
+  getDS1307DateTime();
+
+  // while(! getFingerprintEnroll());
+  // Serial.println("\n\n------------------------------------");
+  // String fingerprintTemplate = getFingerprintTemplate();
+
+  // // Wait for wifi conenction (check again)
+  // if((WiFi.status() == WL_CONNECTED) && fingerprintTemplate != "") {
+  //   WiFiClient client;
+  //   HTTPClient http;
+
+  //   http.begin(client, "http://" SERVER_IP "/api/Hello/fingerprint"); 
+  //   http.addHeader("Content-Type", "application/json");
+
+  //   Serial.print("Upload new fingerprint template to server using [HTTP] POST...\n");
+  //   int httpCode = http.POST("{\"fingerprintTemplate\":\"" + fingerprintTemplate +  "\"}");
+
+  //   if (httpCode > 0) {
+  //     Serial.printf("[HTTP] POST... code: %d\n", httpCode);
+
+  //     // Server return OK
+  //     if (httpCode == HTTP_CODE_OK) {
+  //       const String& payload = http.getString();
+  //       Serial.println("received payload:\n<<");
+  //       Serial.println(payload);
+  //       Serial.println(">>");
+  //     }
+  //   } else {
+  //     Serial.printf("[HTTP] POST... failed, error: %s\n", http.errorToString(httpCode).c_str());
+  //   }
+
+  //   http.end();
+  // }
 
   // Delete template from sensor
   // Deleting fingerprint from sensor
   //deleteFingerprint(1);
 
-  delay(3000);
+
+  if(isRegisteringFingerprintTemplate){
+    // Scanning to register fingerprint template
+    lcd.clear();
+    printTextLCD(content, 0);
+    printTextLCD("Registering fingerprint", 1);
+    while(! getFingerprintEnroll());
+    String fingerprintTemplate = getFingerprintTemplate();
+    uploadFingerprintTemplate(fingerprintTemplate);
+  }
+  else{
+    //print datetime get from RTC
+    parseDateTimeToString();
+    printTextLCD(Date, 0);
+    printTextLCD(Time, 1);
+  }
+
+  // let the websockets client check for incoming messages
+  if(websocketClient.available()) {
+    websocketClient.poll();
+  }
+  delay(500);
+}
+
+
+//====================================================================
+void resetData(){
+
+  // Empty sensor
+  finger.emptyDatabase();
+  lcd.clear();
+  printTextLCD("Empty database", 0);
+}
+
+// Set DateTime of DS1307
+void setupDS1307DateTime() {
+  int checkwifi = checkWifi();
+  if(checkWifi == 0){
+    lcd.clear();
+    printTextLCD("Cannot setup datetime", 0);
+    printTextLCD("Wifi not connected", 1);
+    while(1);
+  }
+
+  timeClient.update();
+  unsigned long unix_epoch = timeClient.getEpochTime();    // Get Unix epoch time from the NTP server
+  second_ = second(unix_epoch);
+  minute_ = minute(unix_epoch);
+  hour_   = hour(unix_epoch);
+  day_    = day(unix_epoch);
+  month_  = month(unix_epoch);
+  year_   = year(unix_epoch);
+
+  rtc.adjust(DateTime(year_, month_, day_, hour_, minute_, second_));
+}
+
+// Get DateTime of DS1307
+void getDS1307DateTime(){
+  DateTime now = rtc.now();
+
+  second_ = now.second();
+  minute_ = now.minute();
+  hour_   = now.hour();
+  day_    = now.day();
+  month_  = now.month();
+  year_   = now.year();
+}
+
+void parseDateTimeToString(){
+  Time[12] = second_ % 10 + 48;
+  Time[11] = second_ / 10 + 48;
+  Time[9]  = minute_ % 10 + 48;
+  Time[8]  = minute_ / 10 + 48;
+  Time[6]  = hour_   % 10 + 48;
+  Time[5]  = hour_   / 10 + 48;
+
+  Date[5]  = day_   / 10 + 48;
+  Date[6]  = day_   % 10 + 48;
+  Date[8]  = month_  / 10 + 48;
+  Date[9]  = month_  % 10 + 48;
+  Date[13] = (year_   / 10) % 10 + 48;
+  Date[14] = year_   % 10 % 10 + 48;
+
+  CDateTime[0] = (year_ / 10 / 10 / 10) % 10 + 48;
+  CDateTime[1] = (year_ / 10 / 10) % 10 + 48;
+  CDateTime[2] = (year_ / 10) % 10 + 48;
+  CDateTime[3] = year_ % 10 % 10 + 48;
+  CDateTime[5] = month_  / 10 + 48;
+  CDateTime[6] = month_  % 10 + 48;
+  CDateTime[8] = day_  / 10 + 48;
+  CDateTime[9] = day_  % 10 + 48;
+  CDateTime[11] = hour_  / 10 + 48;
+  CDateTime[12] = hour_  % 10 + 48;
+  CDateTime[14] = minute_ / 10 + 48;
+  CDateTime[15] = minute_ % 10 + 48;
+  CDateTime[17] = second_ / 10 + 48;
+  CDateTime[18] = second_ % 10 + 48;
+}
+
+int checkWifi(){
+  if(WiFi.status() == WL_CONNECTED){
+    return 1;
+  }
+  return 0;
+}
+
+int checkUpdateDateTime() {
+  unsigned long now = millis();
+  if(now < lastUpdate){
+    lastUpdate = 0;
+    return 0;
+  }
+  if(lastUpdate >= 2*intervalTime){
+    return 0;
+  }
+  else if(now > (lastUpdate + intervalTime)){
+    lastUpdate = now;
+    return 1;
+  }
+  else{
+    return 0;
+  }
+}
+
+void printTextLCD(String message, int row){
+  if(message.length() > 16) {
+    for(int i=0; i < 5; i++) {
+      message = " " + message; 
+    }
+    message = message + " ";
+
+    for(int pos = 0; pos < message.length() - 16; pos++){
+      lcd.setCursor(0, row);
+      lcd.print("");
+      lcd.print(message.substring(pos, pos + 16));
+      delay(300);
+    }
+  }
+  else{
+    lcd.setCursor(0, row);
+    lcd.print(message); 
+  }
 }
 
 uint8_t getFingerprintEnroll() {
@@ -437,4 +687,61 @@ uint8_t deleteFingerprint(uint8_t id) {
   }
 
   return p;
+}
+
+void uploadFingerprintTemplate(String fingerprintTemplate){
+  int checkWifiStatus =  checkWifi();
+  if(checkWifiStatus == 0) {
+    lcd.clear();
+    printTextLCD("Connection lost", 0);
+    return;
+  }
+
+  FingerData fingerData(fingerprintTemplate.c_str(), content.c_str());
+  JSONVar fingerDataObject;
+  fingerDataObject["fingerprintTemplate"] = fingerData.fingerprintTemplate.c_str();
+  fingerDataObject["Content"] = fingerData.Content.c_str();
+  String payload = JSON.stringify(fingerDataObject);
+
+  http.begin(wifiClient, "http://" SERVER_IP "/api/Hello/fingerprint");
+  http.addHeader("Content-Type", "application/json");
+  int httpCode = http.POST(payload);
+  String payloadData = http.getString();
+  http.end();
+
+  if(httpCode <= 0){
+    lcd.clear();
+    printTextLCD("GET failed: " + http.errorToString(httpCode), 0);
+    delay(1000);
+    return;
+  }
+
+  if (httpCode != HTTP_CODE_OK){
+    lcd.clear();
+    printTextLCD("GET failed!!!", 0);
+    printTextLCD("Status code: " + httpCode, 1);
+    delay(1000);
+    return;
+  }
+
+  lcd.clear();
+  printTextLCD("Registered successfully", 0);
+  printTextLCD(payloadData, 1);
+  delay(3000);
+
+  isRegisteringFingerprintTemplate = false;
+  content = "";
+}
+
+
+void onEventsCallback(WebsocketsEvent event, String data) {
+    if(event == WebsocketsEvent::ConnectionOpened) {
+        Serial.println("Connnection Opened");
+    } else if(event == WebsocketsEvent::ConnectionClosed) {
+        Serial.println("Connnection Closed");
+    } else if(event == WebsocketsEvent::GotPing) {
+        Serial.println("Got a Ping!");
+    } else if(event == WebsocketsEvent::GotPong) {
+        Serial.println("Got a Pong!");
+    }
 }

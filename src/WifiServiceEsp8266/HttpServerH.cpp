@@ -12,7 +12,7 @@ void startConfigServer(){
   server->on(F("/"), HTTP_GET, handleRoot);
   server->on(F("/status"), HTTP_GET, handleStatus);
   server->on(F("/wifis"), HTTP_GET, handleWifis);
-  server->on(F("/connect-to", HTTP_POST, handleConnectTo);
+  server->on(F("/connect-to"), HTTP_POST, handleConnectTo);
   server->on(F("/"), HTTP_OPTIONS, handleOk);
   server->on(F("/status"), HTTP_OPTIONS, handleOk);
   server->on(F("/wifis"), HTTP_OPTIONS, handleOk);
@@ -30,7 +30,7 @@ void handleOk(){
   server->sendHeader(F("Access-Control-Allow-Headers"), "*");
   server->sendHeader(F("Access-Control-Allow-Methods"), "*");
   server->sendHeader(F("Access-Control-Allow-Origin"), "*");
-  server->send(200, F("application/json; charset=utf-8"), F("{\"status\":\"ok\"}"))
+  server->send(200, F("application/json; charset=utf-8"), F("{\"status\":\"ok\"}"));
 }
 
 void handleRoot(){

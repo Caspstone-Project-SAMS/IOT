@@ -22,8 +22,8 @@
 #define SERVER_IP "34.81.224.196"
 
 #ifndef STASSID
-#define STASSID "oplus_co_apcnzr" //"FPTU_Library" //"Nhim" //"Garage Coffee" //
-#define STAPSK "vhhd3382" //"12345678" //"1357924680" //"garageopen24h" //
+#define STASSID "FPTU_Student-616" //"oplus_co_apcnzr" //"FPTU_Library" //"oplus_co_apcnzr" //"Nhim" //"oplus_co_apcnzr" //"FPTU_Library" // //"Garage Coffee" //
+#define STAPSK "12345678" //"vhhd3382" //"12345678" //"vhhd3382" //"1357924680" //"vhhd3382" //"12345678" // //"garageopen24h" //
 #endif
 
 #define Finger_Rx 0 //D3 in ESP8266 is GPIO0
@@ -61,7 +61,7 @@ class Student {
     std::string studentName;
     std::string userID;
     std::string studentCode;
-    std::string fingerprintTemplateData;
+    std::vector<std::string> fingerprintTemplateData;
 };
 
 class Class {
@@ -181,63 +181,70 @@ void conenctLCD() {
 }
 
 void connectFingerprintSensor() {
-  Serial.println("\n\nAdafruit Fingerprint sensor enrollment");
+  //Serial.println("\n\nAdafruit Fingerprint sensor enrollment");
   finger.begin(57600);
   if (finger.verifyPassword()) {
-    Serial.println("Found fingerprint sensor!");
+    //Serial.println("Found fingerprint sensor!");
   } else {
-    Serial.println("Did not find fingerprint sensor :(");
+    //Serial.println("Did not find fingerprint sensor :(");
     while (1) { delay(1); }
   }
 
-  Serial.println(F("Reading sensor parameters"));
-  finger.getParameters();
-  Serial.print(F("Status: 0x")); Serial.println(finger.status_reg, HEX);
-  Serial.print(F("Sys ID: 0x")); Serial.println(finger.system_id, HEX);
-  Serial.print(F("Capacity: ")); Serial.println(finger.capacity);
-  Serial.print(F("Security level: ")); Serial.println(finger.security_level);
-  Serial.print(F("Device address: ")); Serial.println(finger.device_addr, HEX);
-  Serial.print(F("Packet len: ")); Serial.println(finger.packet_len);
-  Serial.print(F("Baud rate: ")); Serial.println(finger.baud_rate);
+  // Serial.println(F("Reading sensor parameters"));
+  // finger.getParameters();
+  // Serial.print(F("Status: 0x")); Serial.println(finger.status_reg, HEX);
+  // Serial.print(F("Sys ID: 0x")); Serial.println(finger.system_id, HEX);
+  // Serial.print(F("Capacity: ")); Serial.println(finger.capacity);
+  // Serial.print(F("Security level: ")); Serial.println(finger.security_level);
+  // Serial.print(F("Device address: ")); Serial.println(finger.device_addr, HEX);
+  // Serial.print(F("Packet len: ")); Serial.println(finger.packet_len);
+  // Serial.print(F("Baud rate: ")); Serial.println(finger.baud_rate);
 }
 
 void conenctWifi() {
   delay(100);
-  Serial.println("\n\n\n================================");
-  Serial.println("Connecting to Wifi");
+  // Serial.println("\n\n\n================================");
+  // Serial.println("Connecting to Wifi");
 
   WiFi.begin(STASSID, STAPSK);
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
-    Serial.print(".");
+    //Serial.print(".");
   }
-  Serial.print("Connected! IP address: "); Serial.println(WiFi.localIP());
+  //Serial.print("Connected! IP address: "); Serial.println(WiFi.localIP());
 }
 
 void connectDS1307() {
   bool connectToRTC = false;
   while(!connectToRTC){
-    if(!rtc.begin()) {
-      Serial.println("Couldn't find RTC");
-      Serial.println("Do you want to reconnect RTC");
-      Serial.println("'Y' to yes, others to no");
-      while(1){
-        if(Serial.available()){
-          if(Serial.read() == 'Y'){
-            break;
-          }
-          else{
-            connectToRTC = true;
-            break;
-          }
-        }
-      }
-    }
-    else{
+    delay(500);
+    if(rtc.begin()){
       connectToRTC = true;
       haveRTC = true;
     }
   }
+  // while(!connectToRTC){
+  //   if(!rtc.begin()) {
+  //     Serial.println("Couldn't find RTC");
+  //     Serial.println("Do you want to reconnect RTC");
+  //     Serial.println("'Y' to yes, others to no");
+  //     while(1){
+  //       if(Serial.available()){
+  //         if(Serial.read() == 'Y'){
+  //           break;
+  //         }
+  //         else{
+  //           connectToRTC = true;
+  //           break;
+  //         }
+  //       }
+  //     }
+  //   }
+  //   else{
+  //     connectToRTC = true;
+  //     haveRTC = true;
+  //   }
+  // }
 }
 //===================================================================
 
@@ -485,8 +492,8 @@ void getSchedule() {
 
   String lecturerId = "a829c0b5-78dc-4194-a424-08dc8640e68a";
   String semesterId = "2";
-  String startDate = "2024-06-11";
-  String endDate = "2024-06-13";
+  String startDate = "2024-06-23";
+  String endDate = "2024-06-25";
   String url = "http://" + String(SERVER_IP) + "/api/Schedule?lecturerId=" + lecturerId + "&semesterId=" + semesterId + "&startDate=" + startDate + "&endDate=" + endDate;
   //http://35.221.168.89/api/Schedule?lecturerId=a829c0b5-78dc-4194-a424-08dc8640e68a&semesterId=2&startDate=2024-11-06&endDate=2024-12-06
 
@@ -635,12 +642,23 @@ void getStudent(){
     }
 
     std::vector<Student> studentInClass;
+    Student student;
+    std::vector<std::string> fingerprints;
     for(int i = 0; i < studentDataArray.length(); i++) {
-      Student student;
       student.studentName = (const char*)studentDataArray[i]["studentName"];
       student.userID = (const char*)studentDataArray[i]["userID"];
       student.studentCode = (const char*)studentDataArray[i]["studentCode"];
-      student.fingerprintTemplateData = (const char*)studentDataArray[i]["fingerprintTemplateData"];
+      if(JSON.typeof(studentDataArray[i]["fingerprintTemplateData"])!="array"){
+        lcd.clear();
+        printTextLCD("Invalid data format!!!", 0);
+        delay(1000);
+        return;
+      }
+      for(int index = 0; index < studentDataArray[i]["fingerprintTemplateData"].length(); index++){
+        fingerprints.push_back((const char*)studentDataArray[i]["fingerprintTemplateData"][index]);
+      }
+      student.fingerprintTemplateData = fingerprints;
+      fingerprints.clear();
       studentInClass.push_back(student);
       printTextLCD("Get " + String(i+1), 1);
       delay(1000);
@@ -705,6 +723,7 @@ void resetData(){
   scheduleDatas.clear();
   classes.clear();
   attendances.clear();
+  unUpadatedAttendances.clear();
   printTextLCD("Empty in-memory datas", 1);
   delay(2000);
 }
@@ -800,25 +819,29 @@ void writeFingerprintTemplateToSensor(){
 
       int totalUploadedFingerprint = 0;
       int count = 1;
+      int totalFingerprint = 0;
       for(const Student& student : item.students){
-        uint8_t fingerTemplate[512];
-        memset(fingerTemplate, 0xff, 512);
-        for (int i = 0; i < 512; i++) {
-          // Extract the current pair of 2 characters
-          char hexPair[2]; // Two characters + null terminator (array of characters always have null terminator is '\0')
-          hexPair[0] = student.fingerprintTemplateData[2 * i];
-          hexPair[1] = student.fingerprintTemplateData[2 * i + 1];
-          // Convert the pair to a uint8_t value
-          std::string hexPairString(hexPair, hexPair + 2);
-          fingerTemplate[i] = convert_hex_to_binary(hexPairString);
-        }
+        for(const std::string& fingerprintData : student.fingerprintTemplateData){
+          totalFingerprint++;
+          uint8_t fingerTemplate[512];
+          memset(fingerTemplate, 0xff, 512);
+          for (int i = 0; i < 512; i++) {
+            // Extract the current pair of 2 characters
+            char hexPair[2]; // Two characters + null terminator (array of characters always have null terminator is '\0')
+            hexPair[0] = fingerprintData[2 * i];
+            hexPair[1] = fingerprintData[2 * i + 1];
+            // Convert the pair to a uint8_t value
+            std::string hexPairString(hexPair, hexPair + 2);
+            fingerTemplate[i] = convert_hex_to_binary(hexPairString);
+          }
 
-        if(finger.write_template_to_sensor(template_buf_size,fingerTemplate)){
-          if(finger.storeModel(count) == FINGERPRINT_OK){
-            Attendance attendance(count, onGoingSchedule->scheduleID, student.userID, student.studentCode);
-            attendances.push_back(attendance);
-            totalUploadedFingerprint++;
-            count++;
+          if(finger.write_template_to_sensor(template_buf_size,fingerTemplate)){
+            if(finger.storeModel(count) == FINGERPRINT_OK){
+              Attendance attendance(count, onGoingSchedule->scheduleID, student.userID, student.studentCode);
+              attendances.push_back(attendance);
+              totalUploadedFingerprint++;
+              count++;
+            }
           }
         }
       }
@@ -826,8 +849,7 @@ void writeFingerprintTemplateToSensor(){
       fingerprintIsStored = true;
 
       printTextLCD(" ", 1);
-      printTextLCD("uploaded " + String(totalUploadedFingerprint) + "/" + item.students.size(), 1);
-      printTextLCD("uploaded " + String(totalUploadedFingerprint) + "/" + item.students.size(), 1);
+      printTextLCD("uploaded " + String(totalUploadedFingerprint) + "/" + totalFingerprint, 1);
       delay(2000);
 
       return;
@@ -878,18 +900,33 @@ void attendanceSession(uint32_t& duration){
       auto is_matched = [fingerId](const auto& obj){ return obj.storedFingerID == fingerId; };
       auto it = std::find_if(attendances.begin(), attendances.end(), is_matched);
       if (it != attendances.end()) {
-        if(it->attended == false){
-          it->attended = true;
-          it->attendanceTime = rtc.now();
+
+        // Check whether if user is already attended with others finger or not
+        uint8_t scheduleId = it->scheduleID;
+        std::string userId = it->userID;
+        auto is_already_attended = [scheduleId, userId](const auto& obj){ return (obj.scheduleID == scheduleId && obj.userID == userId && obj.attended == true); };
+        auto it_already_attended = std::find_if(attendances.begin(), attendances.end(), is_already_attended);
+        if(it_already_attended != attendances.end()){
           printTextLCD(" ", 1);
-          printTextLCD((it->studentCode + " attended").c_str(), 1);
-          updateAttendance(*it);
+          printTextLCD((it_already_attended->studentCode + " already attended").c_str(), 1);
           delay(2000);
         }
+        //==================================================
+        // If not attended with others finger, lets check attendance status of the current fingerprint
         else{
-          printTextLCD(" ", 1);
-          printTextLCD((it->studentCode + " already attended").c_str(), 1);
-          delay(2000);
+          if(it->attended == false){
+            it->attended = true;
+            it->attendanceTime = rtc.now();
+            printTextLCD(" ", 1);
+            printTextLCD((it->studentCode + " attended").c_str(), 1);
+            updateAttendance(*it);
+            delay(2000);
+          }
+          else{
+            printTextLCD(" ", 1);
+            printTextLCD((it->studentCode + " already attended").c_str(), 1);
+            delay(2000);
+          }
         }
       }
       displayAttendanceSession = true;
