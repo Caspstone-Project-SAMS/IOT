@@ -35,17 +35,25 @@ void handleServerMode(){
   if(server) {
     server->handleClient();
   }
+  else{
+    appMode = NORMAL_MODE;
+  }
 }
 
 void checkButtonResetClick(){
   if(digitalRead(PIN_RESET) == LOW && (settingTimeout + SETTING_HOLD_TIME) <= millis() && appMode != SERVER_MODE){
+    ECHOLN("Go to server Mode");
     settingTimeout == millis();
     if(appMode != SERVER_MODE){
       appMode = SERVER_MODE;
+
+      // Start server
+      startConfigServer();
       WifiService.setupAP();
     }
   }
   else if(digitalRead(PIN_RESET) == HIGH){
+    ECHOLN("Button is pushed");
     settingTimeout = millis();
   }
 }
