@@ -7,12 +7,19 @@
 #include <Arduino_JSON.h>
 #include <string>
 
-#include <LiquidCrystal_I2C.h>
 #include <RTClib.h>
 
 #include <WiFiUdp.h>
 #include <NTPClient.h>               
 #include <TimeLib.h>
+
+#include <ESP8266WebServer.h>
+#include "EEPRomService.h"
+#include "AppDebug.h"
+#include "AppConfig.h"
+#include "WifiService.h"
+#include "HttpServerH.h"
+#include "LCDService.h"
 
 
 using namespace websockets;
@@ -75,7 +82,7 @@ WebsocketsClient websocketClient;
 // DateTime information, NTP client
 WiFiUDP ntpUDP;
 NTPClient timeClient(ntpUDP, "asia.pool.ntp.org", 25200, 60000);
-char Time[] = "TIME:00:00:00   ";
+char Time[] = "TIME:00:00:00";
 char Date[] = "DATE:00-00-2000 ";
 char CDateTime[] = "0000-00-00T00:00:00";
 byte second_, minute_, hour_, day_, month_;
@@ -91,13 +98,6 @@ static const unsigned long intervalTime = 2073600000; //24days
 //================================
 
 
-// LCD I2C
-int lcdColumns = 16;
-int lcdRows = 2;
-LiquidCrystal_I2C lcd(0x27, lcdColumns, lcdRows);
-//================================
-
-
 // Http Client
 WiFiClient wifiClient;
 HTTPClient http;
@@ -107,11 +107,29 @@ HTTPClient http;
 // Is registering fingerprint template?
 bool isRegisteringFingerprintTemplate = false;
 String content;
+//================================
+
+
+// Mode Management
+ESP8266WebServer* server = nullptr;
+int appMode = NORMAL_MODE;
+unsigned long settingTimeout = 0;
+unsigned long toggleTimeout = 0;
+//================================
+
+
+// Button
+const int BUTTON_PIN = D5; // The ESP8266 pin D5 connected to button
+int prev_button_state = LOW; // the previous state from the input pin
+int button_state;    // the current reading from the input pin
+// LOW = Not pushed - HIGH = Pushed
+//================================
+
 
 //========================Set up code==================================
-void conenctLCD() {
-  lcd.init();
-  lcd.backlight();
+
+void connectButton(){
+  pinMode(BUTTON_PIN, INPUT_PULLDOWN_16);
 }
 
 void connectFingerprintSensor() {
@@ -196,56 +214,59 @@ void setup() {
   Serial.begin(9600);
   delay(100);
 
+  //Connect button
+  connectButton();
+
   // Connect I2C LCD
-  conenctLCD();
+  connectLCD();
   delay(2000);
 
   // Connect to DS1307 (RTC object)
-  lcd.clear();
+  clearLCD();
   printTextLCD("Connect RTC", 0);
   connectDS1307();
   delay(2000);
 
   // Connect to R308 fingerprint sensor
-  lcd.clear();
+  clearLCD();
   printTextLCD("Connect Fingerprint Sensor", 0);
   connectFingerprintSensor();
   delay(2000);
 
   // Connet to wifi
-  lcd.clear();
+  clearLCD();
   printTextLCD("Connect Wifi", 0);
   conenctWifi();
   delay(2000);
 
   // Connect to ntp server;
-  lcd.clear();
+  clearLCD();
   printTextLCD("Connect NTP server", 0);
   timeClient.begin();
   delay(2000);
 
   // Connect to websockets
-  lcd.clear();
+  clearLCD();
   printTextLCD("Connect Websockets", 0);
   connectWebSocket();
   delay(2000);
 
   // Prepare data
-  lcd.clear();
+  clearLCD();
   printTextLCD("Prepare data", 0);
   delay(1000);
   // Setup datetime for module
-  lcd.clear();
+  clearLCD();
   printTextLCD("Setup DateTime", 0);
   delay(1000);
   if(haveRTC){
-    lcd.clear();
+    clearLCD();
     printTextLCD("RTC found", 0);
     printTextLCD("Setup RTC", 0);
     setupDS1307DateTime();
   }
   else{
-    lcd.clear();
+    clearLCD();
     printTextLCD("RTC not found", 0);
     while(1);
   }
@@ -253,13 +274,22 @@ void setup() {
   //Reset data
   resetData();
   
-  lcd.clear();
+  clearLCD();
   printTextLCD("Setup done!!!", 0);
   delay(2000);
 }
 
 void loop() {
+  if(appMode == NORMAL_MODE) {
+    handleNormalMode();
+  }
+  else {
+    handleSetUpMode();
+  }
+  checkModeReset();
+}
 
+void handleNormalMode(){
   int checkUpdateDateTimeStatus = checkUpdateDateTime();
   if(checkUpdateDateTimeStatus == 1){
     setupDS1307DateTime();
@@ -268,51 +298,20 @@ void loop() {
   // UpdateTime continuously
   getDS1307DateTime();
 
-  // while(! getFingerprintEnroll());
-  // Serial.println("\n\n------------------------------------");
-  // String fingerprintTemplate = getFingerprintTemplate();
-
-  // // Wait for wifi conenction (check again)
-  // if((WiFi.status() == WL_CONNECTED) && fingerprintTemplate != "") {
-  //   WiFiClient client;
-  //   HTTPClient http;
-
-  //   http.begin(client, "http://" SERVER_IP "/api/Hello/fingerprint"); 
-  //   http.addHeader("Content-Type", "application/json");
-
-  //   Serial.print("Upload new fingerprint template to server using [HTTP] POST...\n");
-  //   int httpCode = http.POST("{\"fingerprintTemplate\":\"" + fingerprintTemplate +  "\"}");
-
-  //   if (httpCode > 0) {
-  //     Serial.printf("[HTTP] POST... code: %d\n", httpCode);
-
-  //     // Server return OK
-  //     if (httpCode == HTTP_CODE_OK) {
-  //       const String& payload = http.getString();
-  //       Serial.println("received payload:\n<<");
-  //       Serial.println(payload);
-  //       Serial.println(">>");
-  //     }
-  //   } else {
-  //     Serial.printf("[HTTP] POST... failed, error: %s\n", http.errorToString(httpCode).c_str());
-  //   }
-
-  //   http.end();
-  // }
-
-  // Delete template from sensor
-  // Deleting fingerprint from sensor
-  //deleteFingerprint(1);
-
-
   if(isRegisteringFingerprintTemplate){
     // Scanning to register fingerprint template
-    lcd.clear();
+    clearLCD();
     printTextLCD(content, 0);
     printTextLCD("Registering fingerprint", 1);
-    while(! getFingerprintEnroll());
-    String fingerprintTemplate = getFingerprintTemplate();
-    uploadFingerprintTemplate(fingerprintTemplate);
+    bool getFingerprintSuccessfully = false;
+    while(!getFingerprintSuccessfully){
+      if(appMode == SERVER_MODE) return;
+      getFingerprintSuccessfully = getFingerprintEnroll();
+      if(getFingerprintSuccessfully){
+        String fingerprintTemplate = getFingerprintTemplate();
+        uploadFingerprintTemplate(fingerprintTemplate);
+      }
+    }
   }
   else{
     //print datetime get from RTC
@@ -325,16 +324,20 @@ void loop() {
   if(websocketClient.available()) {
     websocketClient.poll();
   }
-  delay(500);
 }
 
+void handleSetUpMode(){
+  if(server) {
+    server->handleClient();
+  }
+}
 
 //====================================================================
 void resetData(){
 
   // Empty sensor
   finger.emptyDatabase();
-  lcd.clear();
+  clearLCD();
   printTextLCD("Empty database", 0);
 }
 
@@ -342,7 +345,7 @@ void resetData(){
 void setupDS1307DateTime() {
   int checkwifi = checkWifi();
   if(checkWifi == 0){
-    lcd.clear();
+    clearLCD();
     printTextLCD("Cannot setup datetime", 0);
     printTextLCD("Wifi not connected", 1);
     while(1);
@@ -425,26 +428,6 @@ int checkUpdateDateTime() {
   }
   else{
     return 0;
-  }
-}
-
-void printTextLCD(String message, int row){
-  if(message.length() > 16) {
-    for(int i=0; i < 5; i++) {
-      message = " " + message; 
-    }
-    message = message + " ";
-
-    for(int pos = 0; pos < message.length() - 16; pos++){
-      lcd.setCursor(0, row);
-      lcd.print("");
-      lcd.print(message.substring(pos, pos + 16));
-      delay(300);
-    }
-  }
-  else{
-    lcd.setCursor(0, row);
-    lcd.print(message); 
   }
 }
 
@@ -566,43 +549,10 @@ uint8_t getFingerprintEnroll() {
   Serial.println("Created successfully");
   delay(2000);
 
-  // p = finger.storeModel(i);
-  // if (p == FINGERPRINT_OK) {
-  //   Serial.println("Stored!");
-  // } else if (p == FINGERPRINT_PACKETRECIEVEERR) {
-  //   Serial.println("Communication error");
-  //   return p;
-  // } else if (p == FINGERPRINT_BADLOCATION) {
-  //   Serial.println("Could not store in that location");
-  //   return p;
-  // } else if (p == FINGERPRINT_FLASHERR) {
-  //   Serial.println("Error writing to flash");
-  //   return p;
-  // } else {
-  //   Serial.println("Unknown error");
-  //   return p;
-  // }
-
   return true;
 }
 
 String getFingerprintTemplate() {
-
-  //Serial.println("Attempting to load fingerprint template\n");
-  // uint8_t p = finger.loadModel(i);
-  // switch (p) {
-  //   case FINGERPRINT_OK:
-  //     Serial.print("Template "); Serial.println(" loaded");
-  //     break;
-  //   case FINGERPRINT_PACKETRECIEVEERR:
-  //     Serial.println("Communication error");
-  //     return "";
-  //   default:
-  //     Serial.print("Unknown error "); Serial.println(p);
-  //     return "";
-  // }
-
-  // OK success!
   Serial.print("Attempting to get fingerprint template...\n");
   uint8_t p = finger.getModel();
   switch (p) {
@@ -692,7 +642,7 @@ uint8_t deleteFingerprint(uint8_t id) {
 void uploadFingerprintTemplate(String fingerprintTemplate){
   int checkWifiStatus =  checkWifi();
   if(checkWifiStatus == 0) {
-    lcd.clear();
+    clearLCD();
     printTextLCD("Connection lost", 0);
     return;
   }
@@ -710,27 +660,60 @@ void uploadFingerprintTemplate(String fingerprintTemplate){
   http.end();
 
   if(httpCode <= 0){
-    lcd.clear();
+    clearLCD();
     printTextLCD("GET failed: " + http.errorToString(httpCode), 0);
     delay(1000);
     return;
   }
 
   if (httpCode != HTTP_CODE_OK){
-    lcd.clear();
+    clearLCD();
     printTextLCD("GET failed!!!", 0);
     printTextLCD("Status code: " + httpCode, 1);
     delay(1000);
     return;
   }
 
-  lcd.clear();
+  clearLCD();
   printTextLCD("Registered successfully", 0);
   printTextLCD(payloadData, 1);
   delay(3000);
 
   isRegisteringFingerprintTemplate = false;
   content = "";
+}
+
+void checkModeReset(){
+  button_state = digitalRead(BUTTON_PIN);
+  if(button_state == HIGH){
+    settingTimeout = millis();
+    do{
+      if((settingTimeout + SETTING_HOLD_TIME) <= millis()){
+        // Change mode
+        if(appMode == SERVER_MODE){
+          appMode = NORMAL_MODE;
+          printTextLCD("Changing to", 0);
+          printTextLCD("normal mode...", 1);
+        }
+        else{
+          appMode = SERVER_MODE;
+          printTextLCD("Changing to", 0);
+          printTextLCD("setup mode...", 1);
+
+
+          // Start server and AP wifi
+          startConfigServer();
+          WifiService.setupAP();
+
+          clearLCD();
+          printTextLCD("Setup mode started", 0);
+        }
+        return;
+      }
+      button_state = digitalRead(BUTTON_PIN);
+    }
+    while(button_state == HIGH);
+  }
 }
 
 

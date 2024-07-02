@@ -22,8 +22,8 @@
 #define SERVER_IP "34.81.224.196"
 
 #ifndef STASSID
-#define STASSID "FPTU_Student-616" //"oplus_co_apcnzr" //"FPTU_Library" //"oplus_co_apcnzr" //"Nhim" //"oplus_co_apcnzr" //"FPTU_Library" // //"Garage Coffee" //
-#define STAPSK "12345678" //"vhhd3382" //"12345678" //"vhhd3382" //"1357924680" //"vhhd3382" //"12345678" // //"garageopen24h" //
+#define STASSID "Nhim" //"oplus_co_apcnzr" //"FPTU_Library" //"oplus_co_apcnzr" //"Nhim" //"oplus_co_apcnzr" //"FPTU_Library" // //"Garage Coffee" //
+#define STAPSK "1357924680" //"vhhd3382" //"12345678" //"vhhd3382" //"1357924680" //"vhhd3382" //"12345678" // //"garageopen24h" //
 #endif
 
 #define Finger_Rx 0 //D3 in ESP8266 is GPIO0
@@ -493,7 +493,7 @@ void getSchedule() {
   String lecturerId = "a829c0b5-78dc-4194-a424-08dc8640e68a";
   String semesterId = "2";
   String startDate = "2024-06-23";
-  String endDate = "2024-06-25";
+  String endDate = "2024-07-01";
   String url = "http://" + String(SERVER_IP) + "/api/Schedule?lecturerId=" + lecturerId + "&semesterId=" + semesterId + "&startDate=" + startDate + "&endDate=" + endDate;
   //http://35.221.168.89/api/Schedule?lecturerId=a829c0b5-78dc-4194-a424-08dc8640e68a&semesterId=2&startDate=2024-11-06&endDate=2024-12-06
 
