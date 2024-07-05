@@ -28,6 +28,7 @@ class WifiServiceClass{
     int connect(const String &ssid, const String &pass, boolean isNew = false);
     int connect();
     void storeWifi(const String &ssid, const String &pass);
+    int checkWifi();
 };
 
 extern WifiServiceClass WifiService;

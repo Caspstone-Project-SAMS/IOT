@@ -1,0 +1,123 @@
+bool rtcConnected = false;
+  bool fingerprintSensorConnected = false;
+  bool wifiConnected = false;
+  bool ntpServerConnected = false;
+  bool websocketConnected = false;
+  bool dataPrepared = false;
+  int checkAll = 0; //checkAll = 6 => OK break the wile loop
+
+  unsigned long setupTime = millis();
+  while(1){
+    if(!rtcConnected){
+      clearLCD();
+      printTextLCD("Connect RTC", 0);
+      connectDS1307();
+      rtcConnected=true;
+      checkAll++;
+      delay(50);
+    }
+    if(!fingerprintSensorConnected && (setupTime + 1000) <= millis()){
+      connectFingerprintSensor();
+      fingerprintSensorConnected=true;
+      checkAll++;
+      delay(50);
+    }
+    if(!wifiConnected && (setupTime + 2000) <= millis()){
+      connectWifi();
+      wifiConnected=true;
+      checkAll++;
+      delay(50);
+    }
+    if(!ntpServerConnected && (setupTime + 3000) <= millis()){
+      timeClient.begin();
+      ntpServerConnected=true;
+      checkAll++;
+      delay(50);
+    }
+    if(!websocketConnected && (setupTime + 4000) <= millis()){
+      connectWebSocket();
+      websocketConnected=true;
+      checkAll++;
+      delay(50);
+    }
+    if(!dataPrepared && (setupTime + 5000) <= millis()){
+      if(haveRTC){
+        setupDS1307DateTime();
+      }
+      else{
+        while(1);
+      }
+      resetData();
+      dataPrepared=true;
+      checkAll++;
+      delay(50);
+    }
+    if(checkAll==6){
+      break;
+    }
+    delay(50);
+  }
+
+  //Connect button
+  connectButton();
+
+  // Connect I2C LCD
+  connectLCD();
+  delay(2000);
+
+  // Connect to DS1307 (RTC object)
+  clearLCD();
+  printTextLCD("Connect RTC", 0);
+  connectDS1307();
+  delay(2000);
+
+  // Connect to R308 fingerprint sensor
+  clearLCD();
+  printTextLCD("Connect Fingerprint Sensor", 0);
+  connectFingerprintSensor();
+  delay(2000);
+
+  // Connet to wifi
+  clearLCD();
+  printTextLCD("Connect Wifi", 0);
+  connectWifi();
+  delay(2000);
+
+  // Connect to ntp server;
+  clearLCD();
+  printTextLCD("Connect NTP server", 0);
+  timeClient.begin();
+  delay(2000);
+
+  // Connect to websockets
+  clearLCD();
+  printTextLCD("Connect Websockets", 0);
+  connectWebSocket();
+  delay(2000);
+
+  // Prepare data
+  clearLCD();
+  printTextLCD("Prepare data", 0);
+  delay(1000);
+  // Setup datetime for module
+  clearLCD();
+  printTextLCD("Setup DateTime", 0);
+  delay(1000);
+  if(haveRTC){
+    clearLCD();
+    printTextLCD("RTC found", 0);
+    printTextLCD("Setup RTC", 0);
+    setupDS1307DateTime();
+  }
+  else{
+    clearLCD();
+    printTextLCD("RTC not found", 0);
+    while(1);
+  }
+
+  //Reset data
+  resetData();
+  
+  clearLCD();
+  printTextLCD("Setup done!!!", 0);
+  delay(2000);

@@ -156,6 +156,7 @@ void connectDS1307() {
       connectToRTC = true;
       haveRTC = true;
     }
+    Serial.println("Connect RTC");
   }
 }
 

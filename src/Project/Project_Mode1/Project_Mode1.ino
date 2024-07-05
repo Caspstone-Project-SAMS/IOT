@@ -20,6 +20,7 @@
 #include "WifiService.h"
 #include "HttpServerH.h"
 #include "LCDService.h"
+#include "FingerprintSensorService.h"
 
 
 using namespace websockets;
@@ -83,7 +84,7 @@ WebsocketsClient websocketClient;
 WiFiUDP ntpUDP;
 NTPClient timeClient(ntpUDP, "asia.pool.ntp.org", 25200, 60000);
 char Time[] = "TIME:00:00:00";
-char Date[] = "DATE:00-00-2000 ";
+char Date[] = "DATE:00-00-2000";
 char CDateTime[] = "0000-00-00T00:00:00";
 byte second_, minute_, hour_, day_, month_;
 int year_;
@@ -132,52 +133,44 @@ void connectButton(){
   pinMode(BUTTON_PIN, INPUT_PULLDOWN_16);
 }
 
-void connectFingerprintSensor() {
-  Serial.println("\n\nAdafruit Fingerprint sensor enrollment");
-  finger.begin(57600);
-  if (finger.verifyPassword()) {
-    Serial.println("Found fingerprint sensor!");
-  } else {
-    Serial.println("Did not find fingerprint sensor :(");
-    while (1) { delay(1); }
-  }
-
-  Serial.println(F("Reading sensor parameters"));
-  finger.getParameters();
-  Serial.print(F("Status: 0x")); Serial.println(finger.status_reg, HEX);
-  Serial.print(F("Sys ID: 0x")); Serial.println(finger.system_id, HEX);
-  Serial.print(F("Capacity: ")); Serial.println(finger.capacity);
-  Serial.print(F("Security level: ")); Serial.println(finger.security_level);
-  Serial.print(F("Device address: ")); Serial.println(finger.device_addr, HEX);
-  Serial.print(F("Packet len: ")); Serial.println(finger.packet_len);
-  Serial.print(F("Baud rate: ")); Serial.println(finger.baud_rate);
-}
-
-void conenctWifi() {
+int connectWifi() {
   delay(100);
   Serial.println("\n\n\n================================");
   Serial.println("Connecting to Wifi");
 
   WiFi.begin(STASSID, STAPSK);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-  Serial.print("Connected! IP address: "); Serial.println(WiFi.localIP());
-}
-
-void connectDS1307() {
-  bool connectToRTC = false;
-  while(!connectToRTC){
-    delay(500);
-    if(rtc.begin()){
-      connectToRTC = true;
-      haveRTC = true;
+  int c = 0;
+  while(c < 20){
+    if(WiFi.status() == WL_CONNECTED){
+      ECHOLN("Wifi connected!");
+      ECHO("Local IP: ");
+      ECHOLN(WiFi.localIP());
+      return CONNECT_OK;
     }
+    delay(500);
+    ECHO(".");
+    c++;
   }
+
+  ECHOLN("");
+  ECHOLN("Connect timed out");
+  return CONNECT_TIMEOUT;
 }
 
-void connectWebSocket() {
+bool connectDS1307() {
+  int reconnectTimes = 0;
+  while(reconnectTimes < 4){
+    delay(200);
+    Serial.println("Connect RTC");
+    if(rtc.begin()){
+      return true;
+    }
+    reconnectTimes++;
+  }
+  return false;
+}
+
+bool connectWebSocket() {
 
   // run callback when events are occuring
   websocketClient.onEvent(onEventsCallback);
@@ -200,83 +193,118 @@ void connectWebSocket() {
     }
   });
 
-  bool connected = websocketClient.connect(WEBSOCKETS_SERVER_HOST, WEBSOCKETS_SERVER_PORT, "/ws?isRegisterModule=true");
-  if(!connected){
-    while(1){
-      delay(500);
-    }
-  }
-  printTextLCD("Connected", 1);
+  return websocketClient.connect(WEBSOCKETS_SERVER_HOST, WEBSOCKETS_SERVER_PORT, "/ws?isRegisterModule=true");
 }
 //===================================================================
 
 void setup() {
   Serial.begin(9600);
+  Serial.println("Start");
   delay(100);
 
-  //Connect button
+  unsigned long lcdTimeout = 0;
+  bool check = false;
+
   connectButton();
-
-  // Connect I2C LCD
+  delay(50);
   connectLCD();
-  delay(2000);
+  delay(50);
 
-  // Connect to DS1307 (RTC object)
   clearLCD();
-  printTextLCD("Connect RTC", 0);
-  connectDS1307();
-  delay(2000);
+  printTextLCD("Setting up...", 0);
 
-  // Connect to R308 fingerprint sensor
-  clearLCD();
-  printTextLCD("Connect Fingerprint Sensor", 0);
-  connectFingerprintSensor();
-  delay(2000);
-
-  // Connet to wifi
-  clearLCD();
-  printTextLCD("Connect Wifi", 0);
-  conenctWifi();
-  delay(2000);
-
-  // Connect to ntp server;
-  clearLCD();
-  printTextLCD("Connect NTP server", 0);
-  timeClient.begin();
-  delay(2000);
-
-  // Connect to websockets
-  clearLCD();
-  printTextLCD("Connect Websockets", 0);
-  connectWebSocket();
-  delay(2000);
-
-  // Prepare data
-  clearLCD();
-  printTextLCD("Prepare data", 0);
-  delay(1000);
-  // Setup datetime for module
-  clearLCD();
-  printTextLCD("Setup DateTime", 0);
-  delay(1000);
-  if(haveRTC){
-    clearLCD();
-    printTextLCD("RTC found", 0);
-    printTextLCD("Setup RTC", 0);
-    setupDS1307DateTime();
+  // Connect to RTC
+  if(connectDS1307()){
+    printTextLCD("RTC connected", 1);
+    haveRTC = true;
   }
   else{
-    clearLCD();
-    printTextLCD("RTC not found", 0);
-    while(1);
+    printTextLCD("RTC not found", 1);
+    haveRTC = false;
+  }
+  lcdTimeout = millis();
+
+  // Connect to R308 fingerprint sensor
+  check = FINGERPSensor.connectFingerprintSensor();
+  while((lcdTimeout + 2000) > millis()){
+    delay(800);
+  }
+  if(check){
+    Serial.println("Fingerprint Sensor connected");
+    printTextLCD("Fingerprint Sensor connected", 1);
+    lcdTimeout = millis();
+  }
+  else{
+    while (1) { 
+      Serial.println("Fingerprint Sensor not found");
+      printTextLCD("Fingerprint Sensor not found", 1);
+      delay(1); 
+    }
   }
 
-  //Reset data
+  // Connet to wifi
+  int wifiStatus = connectWifi(); //WifiService.connect();
+  while((lcdTimeout + 2000) > millis()){
+    delay(800);
+  }
+  if(wifiStatus == CONNECT_OK){
+    printTextLCD("Wifi connected", 1);
+  }
+  else if(wifiStatus == CONNECT_TIMEOUT){
+    printTextLCD("Wifi connect timed out", 1);
+  }
+  else if(wifiStatus == CONNECT_SUSPENDED){
+    printTextLCD("Suspended wifi", 1);
+  }
+  lcdTimeout = millis();
+
+  if(wifiStatus == CONNECT_OK){
+    // Connect to NTP Server
+    while((lcdTimeout + 2000) > millis()){
+      delay(800);
+    }
+    timeClient.begin();
+    printTextLCD("NTP server connected", 1);
+    lcdTimeout = millis();
+
+    // Connect to websockets
+    check = connectWebSocket();
+    while((lcdTimeout + 2000) > millis()){
+      delay(800);
+    }
+    if(check){
+      printTextLCD("Websockets connected", 1);
+    }
+    else{
+      while (1) { 
+        printTextLCD("Websocket connected failed", 1);
+      }
+    }
+    lcdTimeout = millis();
+
+    // Setup datetime
+    check = setupDS1307DateTime();
+    while((lcdTimeout + 2000) > millis()){
+      delay(800);
+    }
+    if(check){
+      printTextLCD("Setup time successfully", 1);
+    }
+    else{
+      printTextLCD("Setup time failed", 1);
+    }
+    lcdTimeout = millis();
+  }
+
   resetData();
+  while((lcdTimeout + 2000) > millis()){
+    delay(800);
+  }
+  printTextLCD("", 1);
+  printTextLCD("Setup done!!!", 1);
+  delay(2000);
   
   clearLCD();
-  printTextLCD("Setup done!!!", 0);
-  delay(2000);
 }
 
 void loop() {
@@ -334,24 +362,26 @@ void handleSetUpMode(){
 
 //====================================================================
 void resetData(){
-
   // Empty sensor
   finger.emptyDatabase();
-  clearLCD();
-  printTextLCD("Empty database", 0);
 }
 
 // Set DateTime of DS1307
-void setupDS1307DateTime() {
+bool setupDS1307DateTime() {
   int checkwifi = checkWifi();
   if(checkWifi == 0){
-    clearLCD();
-    printTextLCD("Cannot setup datetime", 0);
-    printTextLCD("Wifi not connected", 1);
-    while(1);
+    return false;
   }
 
-  timeClient.update();
+  if(!haveRTC){
+    return false;
+  }
+
+  bool updateTime = timeClient.update();
+  if(updateTime == false){
+    return false;
+  }
+
   unsigned long unix_epoch = timeClient.getEpochTime();    // Get Unix epoch time from the NTP server
   second_ = second(unix_epoch);
   minute_ = minute(unix_epoch);
@@ -361,6 +391,8 @@ void setupDS1307DateTime() {
   year_   = year(unix_epoch);
 
   rtc.adjust(DateTime(year_, month_, day_, hour_, minute_, second_));
+
+  return true;
 }
 
 // Get DateTime of DS1307
@@ -687,35 +719,38 @@ void checkModeReset(){
   button_state = digitalRead(BUTTON_PIN);
   if(button_state == HIGH){
     settingTimeout = millis();
-    do{
+    while(button_state == HIGH)
+    {
       if((settingTimeout + SETTING_HOLD_TIME) <= millis()){
         // Change mode
         if(appMode == SERVER_MODE){
           appMode = NORMAL_MODE;
+          clearLCD();
           printTextLCD("Changing to", 0);
           printTextLCD("normal mode...", 1);
+          delay(2000);
+          clearLCD();
         }
         else{
           appMode = SERVER_MODE;
+          clearLCD();
           printTextLCD("Changing to", 0);
           printTextLCD("setup mode...", 1);
-
 
           // Start server and AP wifi
           startConfigServer();
           WifiService.setupAP();
-
           clearLCD();
-          printTextLCD("Setup mode started", 0);
+          printTextLCD("Mode: setup", 0);
+          printTextLCD(String(WIFI_AP_SSID) + " - " + String(WIFI_AP_PASSWORD), 1);
         }
-        return;
+        break;
       }
       button_state = digitalRead(BUTTON_PIN);
+      delay(50);
     }
-    while(button_state == HIGH);
   }
 }
-
 
 void onEventsCallback(WebsocketsEvent event, String data) {
     if(event == WebsocketsEvent::ConnectionOpened) {

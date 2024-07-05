@@ -78,4 +78,11 @@ void WifiServiceClass::setupAP(){
   ECHOLN(myIP);
 }
 
+int WifiServiceClass::checkWifi(){
+  if(WiFi.status() == WL_CONNECTED){
+    return CONNECT_OK;
+  }
+  return CONNECT_TIMEOUT;
+}
+
 WifiServiceClass WifiService;
