@@ -16,8 +16,13 @@ class FingerprintSensorClass
     ~FingerprintSensorClass();
     bool connectFingerprintSensor();
     uint8_t getFingerprintEnroll();
+    uint8_t scanFinger();
+    uint8_t getImage1();
+    uint8_t getImage2();
+    uint8_t createModel();
     String getFingerprintTemplate();
     uint8_t deleteFingerprint(uint8_t id);
+    void emptyDatabase();
 };
 
 extern FingerprintSensorClass FINGERPSensor;

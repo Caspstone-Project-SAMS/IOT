@@ -1,9 +1,9 @@
 #include "Crypto.h"
 #include "HttpServerH.h"
 
-void startConfigServer(){
+bool startConfigServer(){
   if(server) {
-    return;
+    return false;
   }
 
   ECHOLN("[HttpServerH][startConfigServer] Begin create new server...");
@@ -19,6 +19,8 @@ void startConfigServer(){
   server->on(F("/connect-to"), HTTP_OPTIONS, handleOk);
   server->begin();
   ECHOLN("[HttpServerH][startConfigServer] HTTP server started");
+
+  return true;
 }
 
 void handleOk(){
@@ -45,8 +47,12 @@ void handleRoot(){
 void handleConnectTo(){
   if(!server){
     ECHOLN("[HttpServerH][handleConnectTo] Server not found");
+    printTextLCD("[Error] Server not found", 1);
     return;
   }
+  printTextLCD("Changing wifi...", 1);
+  unsigned long lcdTimeout = millis();
+
   StaticJsonBuffer<JSON_BUFFER_LENGTH> jsonBuffer;
 
   ECHO("[HttpServerH][handleConnectTo] Receive data: ");
@@ -58,6 +64,9 @@ void handleConnectTo(){
   server->sendHeader(F("Access-Control-Allow-Origin"), "*");
   server->send(200, F("application/json; charset=utf-8"), F("{\"status\":\"ok\"}"));
 
+  while((lcdTimeout + 1500) > millis()){
+    delay(500);
+  }
   if(rootData.success()){
     String nssid = rootData[F("ssid")];
     String npass = rootData[F("pass")];
@@ -65,14 +74,16 @@ void handleConnectTo(){
     ECHOLN(nssid);
     ECHO("Wifi new password: ");
     ECHOLN(npass);
-    if(WifiService.connect(nssid, npass, true) > 0) {
-      ECHOLN("Connect wifi successfully");
+    if(WifiService.checkWifiConnection(nssid, npass) > 0) {
+      printTextLCD("Connect wifi successfully", 1);
+      return;
     }
-
-    ECHOLN("Wrong wifi!!!");
+    printTextLCD("Wrong wifi!!!", 1);
+    return;
   }
 
   ECHOLN("Wrong data!!!");
+  printTextLCD("Wrong data!!!", 1);
 }
 
 void handleStatus() {
@@ -89,9 +100,11 @@ void handleStatus() {
 void handleWifis(){
   if(!server){
     ECHOLN("[HttpServerH][handleWifis] Server not found");
+    printTextLCD("[Error] Server not found", 1);
     return;
   }
 
+  printTextLCD("Getting wifis...", 1);
   // Scan start
   String wifis = "[";
 

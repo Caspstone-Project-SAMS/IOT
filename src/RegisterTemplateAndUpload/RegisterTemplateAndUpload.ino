@@ -149,14 +149,15 @@ void conenctWifi() {
 }
 
 void connectDS1307() {
-  bool connectToRTC = false;
-  while(!connectToRTC){
-    delay(500);
+  int reconnectTimes = 0;
+  while(reconnectTimes < 4){
+    delay(200);
+    Serial.println("Connect RTC: " + String(reconnectTimes + 1));
     if(rtc.begin()){
-      connectToRTC = true;
       haveRTC = true;
+      return;
     }
-    Serial.println("Connect RTC");
+    reconnectTimes++;
   }
 }
 

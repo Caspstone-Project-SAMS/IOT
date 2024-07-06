@@ -10,5 +10,6 @@
 extern void connectLCD();
 extern void printTextLCD(String message, int row);
 extern void clearLCD();
+extern void printTextNoResetLCD(String message, int row);
 
 #endif

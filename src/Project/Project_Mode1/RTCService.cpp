@@ -5,6 +5,11 @@ bool haveRTC = false;
 static unsigned long lastUpdate = 0;
 static const unsigned long intervalTime = 2073600000; //24days
 
+// DateTime format
+// const char* dateFormat = "%Y-%m-%d";
+// const char* timeFormat = "%H:%M:%S";
+// const char* dateTimeFormat = "%Y-%m-%d %H:%M:%S";
+
 RTCServiceClass::RTCServiceClass(){
 }
 
@@ -25,19 +30,21 @@ bool RTCServiceClass::connectDS1307(){
   return false;
 }
 
-bool RTCServiceClass::setupDS1307DateTime(){
-  if(WifiService.checkWifi() != CONNECT_OK){
-    Serial.println("Wifi not connected");
-    return false;
+bool RTCServiceClass::setupDS1307DateTime(DateTime dateTime){
+  if(haveRTC){
+    rtc.adjust(dateTime);
+    return true;
   }
-  if(!haveRTC){
-    Serial.println("RTC not connected");
-    return false;
-  }
-
-  
+  return false;
 }
 
 bool RTCServiceClass::getDS1307DateTime(DateTime& dateTime){
-
+  if(haveRTC){
+    dateTime = rtc.now();
+    return true;
+  }
+  return false;
 }
+
+RTCServiceClass RTCService;
+

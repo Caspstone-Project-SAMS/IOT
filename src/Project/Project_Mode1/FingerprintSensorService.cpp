@@ -1,7 +1,7 @@
 #include "FingerprintSensorService.h"
 
 SoftwareSerial mySerial1(FINGER_RX, FINGER_TX);
-Adafruit_Fingerprint finger1 = Adafruit_Fingerprint(&mySerial1);
+Adafruit_Fingerprint finger = Adafruit_Fingerprint(&mySerial1);
   
 // Constructor
 FingerprintSensorClass::FingerprintSensorClass(){
@@ -15,8 +15,8 @@ FingerprintSensorClass::~FingerprintSensorClass(){
 
 bool FingerprintSensorClass::connectFingerprintSensor(){
   ECHOLN(F("\n\nAdafruit Fingerprint sensor enrollment"));
-  finger1.begin(57600);
-  if (finger1.verifyPassword()) {
+  finger.begin(57600);
+  if (finger.verifyPassword()) {
     ECHOLN(F("Found fingerprint sensor!"));
     return true;
   } else {
@@ -27,10 +27,11 @@ bool FingerprintSensorClass::connectFingerprintSensor(){
 
 
 uint8_t FingerprintSensorClass::getFingerprintEnroll(){
+  // Scan
   int p = -1;
   ECHOLN("Waiting for valid finger to enroll");
   while (p != FINGERPRINT_OK) {
-    p = finger1.getImage();
+    p = finger.getImage();
     switch (p) {
     case FINGERPRINT_OK:
       ECHOLN("Image taken");
@@ -50,8 +51,8 @@ uint8_t FingerprintSensorClass::getFingerprintEnroll(){
     }
   }
 
-  // OK success!
-  p = finger1.image2Tz(1);
+  // Get image 1
+  p = finger.image2Tz(1);
   switch (p) {
     case FINGERPRINT_OK:
       ECHOLN("Image converted");
@@ -73,16 +74,20 @@ uint8_t FingerprintSensorClass::getFingerprintEnroll(){
       return p;
   }
 
+  // Remove finger
   ECHOLN("Remove finger");
   delay(2000);
   p = 0;
   while (p != FINGERPRINT_NOFINGER) {
-    p = finger1.getImage();
+    p = finger.getImage();
   }
+
+
+  // Place finger again
   p = -1;
   ECHOLN("Place same finger again");
   while (p != FINGERPRINT_OK) {
-    p = finger1.getImage();
+    p = finger.getImage();
     switch (p) {
     case FINGERPRINT_OK:
       ECHOLN("Image taken");
@@ -102,8 +107,8 @@ uint8_t FingerprintSensorClass::getFingerprintEnroll(){
     }
   }
 
-  // OK success!
-  p = finger1.image2Tz(2);
+  // Get image 2
+  p = finger.image2Tz(2);
   switch (p) {
     case FINGERPRINT_OK:
       ECHOLN("Image converted");
@@ -125,9 +130,9 @@ uint8_t FingerprintSensorClass::getFingerprintEnroll(){
       return p;
   }
 
-  // OK converted!
+  // Create model
   ECHOLN("Creating model for fingerprint");
-  p = finger1.createModel();
+  p = finger.createModel();
   if (p == FINGERPRINT_OK) {
     ECHOLN("Prints matched!");
   } else if (p == FINGERPRINT_PACKETRECIEVEERR) {
@@ -148,9 +153,28 @@ uint8_t FingerprintSensorClass::getFingerprintEnroll(){
 }
 
 
+
+uint8_t FingerprintSensorClass::scanFinger(){
+  return finger.getImage();
+}
+
+uint8_t FingerprintSensorClass::getImage1(){
+  return finger.image2Tz(1);
+}
+
+uint8_t FingerprintSensorClass::getImage2(){
+  return finger.image2Tz(2);
+}
+
+uint8_t FingerprintSensorClass::createModel(){
+  return finger.createModel();
+}
+
+
+
 String FingerprintSensorClass::getFingerprintTemplate(){
   ECHO("Attempting to get fingerprint template...\n");
-  uint8_t p = finger1.getModel();
+  uint8_t p = finger.getModel();
   switch (p) {
     case FINGERPRINT_OK:
       ECHO("Template "); ECHOLN(" transferring:");
@@ -210,7 +234,7 @@ String FingerprintSensorClass::getFingerprintTemplate(){
 uint8_t FingerprintSensorClass::deleteFingerprint(uint8_t id){
   uint8_t p = -1;
 
-  p = finger1.deleteModel(id);
+  p = finger.deleteModel(id);
 
   if (p == FINGERPRINT_OK) {
     ECHOLN("Delete successfully!");
@@ -226,5 +250,11 @@ uint8_t FingerprintSensorClass::deleteFingerprint(uint8_t id){
 
   return p;
 }
+
+
+void FingerprintSensorClass::emptyDatabase(){
+  finger.emptyDatabase();
+}
+
 
 FingerprintSensorClass FINGERPSensor;
