@@ -23,6 +23,13 @@ bool startConfigServer(){
   return true;
 }
 
+void stopServer(){
+  if(server){
+    server->stop();
+    server = nullptr;
+  }
+}
+
 void handleOk(){
   ECHOLN("[HttpServerH][handleOk] Send OK");
   if(!server){
@@ -74,16 +81,19 @@ void handleConnectTo(){
     ECHOLN(nssid);
     ECHO("Wifi new password: ");
     ECHOLN(npass);
-    if(WifiService.checkWifiConnection(nssid, npass) > 0) {
+    if(WifiService.connectNewWifi(nssid, npass) > 0) {
       printTextLCD("Connect wifi successfully", 1);
+      delay(2500);
       return;
     }
     printTextLCD("Wrong wifi!!!", 1);
+    delay(2500);
     return;
   }
 
   ECHOLN("Wrong data!!!");
   printTextLCD("Wrong data!!!", 1);
+  delay(2500);
 }
 
 void handleStatus() {

@@ -12,7 +12,9 @@
 #define PIN_RESET D1
 #define SERIAL_BAUD_RATE 9600
 #define JSON_BUFFER_LENGTH 1460
+
 #define NORMAL_MODE 1
 #define SERVER_MODE 2
+#define REGISTRATION_MODE 3
 
 #endif

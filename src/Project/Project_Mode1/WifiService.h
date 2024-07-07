@@ -28,7 +28,7 @@ class WifiServiceClass{
     void setupWiFi(ESP8266WiFiClass &Wifi);
     int connect();
     int connect(const String &ssid, const String &pass);
-    int checkWifiConnection(const String &ssid, const String &pass);
+    int connectNewWifi(const String &ssid, const String &pass);
     void beginWifi();
     void storeWifi(const String &ssid, const String &pass);
     bool checkWifi();

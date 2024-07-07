@@ -2,7 +2,6 @@
 #define FINGERPRINT_SENSOR_SERVICE_H_
 
 #include <Adafruit_Fingerprint.h>
-#include "LCDService.h"
 #include "AppDebug.h"
 
 #define FINGER_RX 0 //D3 in ESP8266 is GPIO0

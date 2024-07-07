@@ -1,4 +1,3 @@
-#include <ESP8266WiFi.h>
 #include <ESP8266HTTPClient.h>
 #include <ArduinoWebsockets.h>
 
@@ -43,14 +42,11 @@ class FingerData{
 #define WEBSOCKETS_SERVER_PORT 80
 #define WEBSOCKETS_PROTOCOL "ws"
 
-// #ifndef STASSID
-// #define STASSID "Nhim" //"FPTU_Library" //Nhim
-// #define STAPSK "1357924680" //"12345678" //1357924680
-// // #define STASSID "Nhim"
-// // #define STAPSK "1357924680"
-// // #define STASSID "Garage Coffee"
-// // #define STAPSK "garageopen24h"
-#endif
+// For upload fingerprint template state
+#define CONNECTION_LOST 1
+#define UPLOAD_FAIL 2
+#define UPLOAD_SUCCESS 3
+#define INVALID_DATA 4
 //====================================================================
 
 
@@ -128,10 +124,10 @@ bool connectWebSocket() {
       const char* data = message.c_str();
       JSONVar message = JSON.parse(data);
       String event = message["Event"];
-      String sendData = message["Data"];
+      String receiveData = message["Data"];
       if(event == "RegisterFingerprint"){
-        registrationMode = true;
-        content = sendData;
+        appMode = REGISTRATION_MODE;
+        content = receiveData;
       }
     }
   });
@@ -260,10 +256,10 @@ void loop() {
   if(appMode == SERVER_MODE) {
     handleSetUpMode();
   }
-  else if(registrationMode){
+  else if(appMode == REGISTRATION_MODE){
     handleRegistrationMode();
   }
-  else{
+  else if(appMode == NORMAL_MODE){
     handleNormalMode();
   }
   checkModeReset();
@@ -361,21 +357,95 @@ void handleRegistrationMode(){
 
   clearLCD();
   printTextLCD(content, 0);
-  printTextLCD("Registering fingerprint", 1);
 
-  // Scanning to register fingerprint template
-  // clearLCD();
-  // printTextLCD(content, 0);
-  // printTextLCD("Registering fingerprint", 1);
-  // bool getFingerprintSuccessfully = false;
-  // while(!getFingerprintSuccessfully){
-  //   if(appMode == SERVER_MODE) return;
-  //   getFingerprintSuccessfully = getFingerprintEnroll();
-  //   if(getFingerprintSuccessfully){
-  //     String fingerprintTemplate = getFingerprintTemplate();
-  //     uploadFingerprintTemplate(fingerprintTemplate);
-  //   }
-  // }
+  // Scan
+  printTextLCD("Place finger", 1);
+  int p = -1;
+  while (p != FINGERPRINT_OK) {
+    p = FINGERPSensor.scanFinger();
+    checkModeReset();
+    delay(1);
+  }
+
+  // Get image 1
+  p = FINGERPSensor.getImage1();
+  if(p != FINGERPRINT_OK){
+    printTextLCD("Try again", 1);
+    delay(2000);
+    return;
+  }
+
+  // Remove finger
+  printTextLCD("Remove finger", 1);
+  p = 0;
+  while(p != FINGERPRINT_NOFINGER){
+    p = FINGERPSensor.scanFinger();
+    checkModeReset();
+    delay(1);
+  }
+
+  // Place finger again
+  printTextLCD("Place same finger again", 1);
+  p = -1;
+  while (p != FINGERPRINT_OK){
+    p = FINGERPSensor.scanFinger();
+    checkModeReset();
+    delay(1);
+  }
+
+  // Get image 2
+  p = FINGERPSensor.getImage2();
+  if(p != FINGERPRINT_OK){
+    printTextLCD("Try again", 1);
+    delay(2000);
+    return;
+  }
+
+  // Create model
+  p = FINGERPSensor.createModel();
+  if(p == FINGERPRINT_OK){
+    printTextLCD("Creating...", 1);
+  }
+  else if(p == FINGERPRINT_ENROLLMISMATCH){
+    printTextLCD("Finger does not match", 1);
+    delay(2000);
+    return;
+  }
+  else{
+    printTextLCD("Error: try again", 1);
+    delay(2000);
+    return;
+  }
+
+  String fingerprintTemplate = FINGERPSensor.getFingerprintTemplate();
+  if(fingerprintTemplate == ""){
+    printTextLCD("Created failed", 1);
+    delay(2000);
+    return;
+  }
+
+  int uploadResult = uploadFingerprintTemplate(fingerprintTemplate);
+  switch(uploadResult){
+    case CONNECTION_LOST:
+      printTextLCD("Connection lost", 1);
+      break;
+    case UPLOAD_FAIL:
+      printTextLCD("Upload failed", 1);
+      break;
+    case UPLOAD_SUCCESS:
+      appMode = NORMAL_MODE;
+      content = "";
+      printTextLCD("Upload successfully", 1);
+      break;
+    case INVALID_DATA:
+      printTextLCD("Invalid data", 1);
+      break;
+    default:
+      printTextLCD("Unkonw error", 1);
+      break;
+  }
+  delay(2000);
+  clearLCD();
 }
 
 //==========================================================================================
@@ -475,6 +545,9 @@ void checkModeReset(){
 
           delay(1500);
 
+          // Stop server
+          stopServer();
+          
           // Setup normal mode before start (all everythings related to wifi)
           setupNormalMode();
           delay(2000);
@@ -502,9 +575,9 @@ void checkModeReset(){
           if(!startConfigServer()){
             printTextLCD("Server not found", 1);
             delay(2000);
+            printTextLCD("Error when", 0);
+            printTextLCD("setting up", 1);
             while(1){
-              printTextLCD("Error when", 0);
-              printTextLCD("setting up", 1);
               delay(50);
             }
           }
@@ -579,351 +652,44 @@ void resetNormalMode(){
 
 void onEventsCallback(WebsocketsEvent event, String data) {
     if(event == WebsocketsEvent::ConnectionOpened) {
-        Serial.println("Connnection Opened");
+        ECHOLN("[Main][WebsocketEvent] Connnection Opened");
     } else if(event == WebsocketsEvent::ConnectionClosed) {
-        Serial.println("Connnection Closed");
+        ECHOLN("[Main][WebsocketEvent] Connnection Closed");
     } else if(event == WebsocketsEvent::GotPing) {
-        Serial.println("Got a Ping!");
+        ECHOLN("[Main][WebsocketEvent] Got a Ping!");
     } else if(event == WebsocketsEvent::GotPong) {
-        Serial.println("Got a Pong!");
+        ECHOLN("[Main][WebsocketEvent] Got a Pong!");
     }
 }
 
-//==========================================================================================
+int uploadFingerprintTemplate(String fingerprintTemplate){
+  if(!WifiService.checkWifi()) {
+    return CONNECTION_LOST;
+  }
 
-// Set DateTime of DS1307
-// bool setupDS1307DateTime() {
-//   int checkwifi = checkWifi();
-//   if(checkWifi == 0){
-//     return false;
-//   }
+  if(fingerprintTemplate == "" || content == ""){
+    return INVALID_DATA;
+  }
 
-//   if(!haveRTC){
-//     return false;
-//   }
+  ECHOLN("[Main][UploadTemplate] Uploading fingerprint template...");
+  FingerData fingerData(fingerprintTemplate.c_str(), content.c_str());
+  JSONVar fingerDataObject;
+  fingerDataObject["fingerprintTemplate"] = fingerData.fingerprintTemplate.c_str();
+  fingerDataObject["Content"] = fingerData.Content.c_str();
+  String payload = JSON.stringify(fingerDataObject);
 
-//   bool updateTime = timeClient.update();
-//   if(updateTime == false){
-//     return false;
-//   }
+  http.begin(wifiClient, "http://" SERVER_IP "/api/Hello/fingerprint");
+  http.addHeader("Content-Type", "application/json");
+  int httpCode = http.POST(payload);
+  String payloadData = http.getString();
+  http.end();
 
-//   unsigned long unix_epoch = timeClient.getEpochTime();    // Get Unix epoch time from the NTP server
-//   second_ = second(unix_epoch);
-//   minute_ = minute(unix_epoch);
-//   hour_   = hour(unix_epoch);
-//   day_    = day(unix_epoch);
-//   month_  = month(unix_epoch);
-//   year_   = year(unix_epoch);
+  ECHO("[Main][UploadTemplate] Receive paylod data: "); ECHOLN(payloadData);
+  ECHO("[Main][UploadTemplate] Upload status: "); ECHOLN(httpCode);
 
-//   rtc.adjust(DateTime(year_, month_, day_, hour_, minute_, second_));
+  if (httpCode != HTTP_CODE_OK){
+    return UPLOAD_FAIL;
+  }
 
-//   return true;
-// }
-
-// // Get DateTime of DS1307
-// void getDS1307DateTime(){
-//   DateTime now = rtc.now();
-
-//   second_ = now.second();
-//   minute_ = now.minute();
-//   hour_   = now.hour();
-//   day_    = now.day();
-//   month_  = now.month();
-//   year_   = now.year();
-// }
-
-// int checkWifi(){
-//   if(WiFi.status() == WL_CONNECTED){
-//     return 1;
-//   }
-//   return 0;
-// }
-
-// uint8_t getFingerprintEnroll() {
-//   int p = -1;
-//   Serial.println("Waiting for valid finger to enroll");
-//   while (p != FINGERPRINT_OK) {
-//     p = finger.getImage();
-//     switch (p) {
-//     case FINGERPRINT_OK:
-//       Serial.println("Image taken");
-//       break;
-//     case FINGERPRINT_NOFINGER:
-//       Serial.print(".");
-//       break;
-//     case FINGERPRINT_PACKETRECIEVEERR:
-//       Serial.println("Communication error");
-//       break;
-//     case FINGERPRINT_IMAGEFAIL:
-//       Serial.println("Imaging error");
-//       break;
-//     default:
-//       Serial.println("Unknown error");
-//       break;
-//     }
-//   }
-
-//   // OK success!
-//   p = finger.image2Tz(1);
-//   switch (p) {
-//     case FINGERPRINT_OK:
-//       Serial.println("Image converted");
-//       break;
-//     case FINGERPRINT_IMAGEMESS:
-//       Serial.println("Image too messy");
-//       return p;
-//     case FINGERPRINT_PACKETRECIEVEERR:
-//       Serial.println("Communication error");
-//       return p;
-//     case FINGERPRINT_FEATUREFAIL:
-//       Serial.println("Could not find fingerprint features");
-//       return p;
-//     case FINGERPRINT_INVALIDIMAGE:
-//       Serial.println("Could not find fingerprint features");
-//       return p;
-//     default:
-//       Serial.println("Unknown error");
-//       return p;
-//   }
-
-//   Serial.println("Remove finger");
-//   delay(2000);
-//   p = 0;
-//   while (p != FINGERPRINT_NOFINGER) {
-//     p = finger.getImage();
-//   }
-//   p = -1;
-//   Serial.println("Place same finger again");
-//   while (p != FINGERPRINT_OK) {
-//     p = finger.getImage();
-//     switch (p) {
-//     case FINGERPRINT_OK:
-//       Serial.println("Image taken");
-//       break;
-//     case FINGERPRINT_NOFINGER:
-//       Serial.print(".");
-//       break;
-//     case FINGERPRINT_PACKETRECIEVEERR:
-//       Serial.println("Communication error");
-//       break;
-//     case FINGERPRINT_IMAGEFAIL:
-//       Serial.println("Imaging error");
-//       break;
-//     default:
-//       Serial.println("Unknown error");
-//       break;
-//     }
-//   }
-
-//   // OK success!
-//   p = finger.image2Tz(2);
-//   switch (p) {
-//     case FINGERPRINT_OK:
-//       Serial.println("Image converted");
-//       break;
-//     case FINGERPRINT_IMAGEMESS:
-//       Serial.println("Image too messy");
-//       return p;
-//     case FINGERPRINT_PACKETRECIEVEERR:
-//       Serial.println("Communication error");
-//       return p;
-//     case FINGERPRINT_FEATUREFAIL:
-//       Serial.println("Could not find fingerprint features");
-//       return p;
-//     case FINGERPRINT_INVALIDIMAGE:
-//       Serial.println("Could not find fingerprint features");
-//       return p;
-//     default:
-//       Serial.println("Unknown error");
-//       return p;
-//   }
-
-//   // OK converted!
-//   Serial.println("Creating model for fingerprint");
-//   p = finger.createModel();
-//   if (p == FINGERPRINT_OK) {
-//     Serial.println("Prints matched!");
-//   } else if (p == FINGERPRINT_PACKETRECIEVEERR) {
-//     Serial.println("Communication error");
-//     return p;
-//   } else if (p == FINGERPRINT_ENROLLMISMATCH) {
-//     Serial.println("Fingerprints did not match");
-//     return p;
-//   } else {
-//     Serial.println("Unknown error");
-//     return p;
-//   }
-
-//   Serial.println("Created successfully");
-//   delay(2000);
-
-//   return true;
-// }
-
-// String getFingerprintTemplate() {
-//   Serial.print("Attempting to get fingerprint template...\n");
-//   uint8_t p = finger.getModel();
-//   switch (p) {
-//     case FINGERPRINT_OK:
-//       Serial.print("Template "); Serial.println(" transferring:");
-//       break;
-//     default:
-//       Serial.print("Unknown error "); Serial.println(p);
-//       return "";
-//   }
-
-//   // one data packet is 139 bytes. in one data packet, 11 bytes are 'usesless' :D
-//   uint8_t bytesReceived[556]; // 4 data packets
-//   memset(bytesReceived, 0xff, 556);
-//   uint32_t starttime = millis();
-//   int byteIndex = 0;
-//   while (byteIndex < 556 && (millis() - starttime) < 5000) {
-//     if (mySerial.available()) {
-//       bytesReceived[byteIndex++] = mySerial.read();
-//     }
-//   }
-//   Serial.print(byteIndex); Serial.println(" bytes read.");
-//   Serial.println("Decoding packet...");
-
-//   uint8_t fingerTemplate[512]; // the real template
-//   memset(fingerTemplate, 0xff, 512);
-
-//   for(int m=0;m<4;m++){ //filtering data packets
-//     uint8_t stat=bytesReceived[(m*(128+11))+6];
-//     if( stat!= FINGERPRINT_DATAPACKET && stat!= FINGERPRINT_ENDDATAPACKET){
-//       Serial.println("Bad fingerprint_packet");
-//       while(1){
-//         delay(1);
-//       }
-//     }
-//     memcpy(fingerTemplate + (m*128), bytesReceived + (m*(128+11))+9, 128); 
-//   }
-
-//   // // filtering only the data packets
-//   // int uindx = 9, index = 0;
-//   // memcpy(fingerTemplate + index, bytesReceived + uindx, 128);   // first 256 bytes
-//   // uindx += 256;       // skip data
-//   // uindx += 2;         // skip checksum
-//   // uindx += 9;         // skip next header
-//   // index += 256;       // advance pointer
-//   // memcpy(fingerTemplate + index, bytesReceived + uindx, 256);   // second 256 bytes
-
-//   for(int i = 0; i < 512; i++)
-//   {
-//     Serial.print(fingerTemplate[i]); Serial.print(" ");
-//   }
-
-//   // Fingerprint template is presented in Hexa format
-//   String fingerprintTemplate = "";
-//   for (int i = 0; i < 512; ++i) {
-//     char tmp[16];
-//     char format[128];
-//     sprintf(format, "%%.%dX", 2);
-//     sprintf(tmp, format, fingerTemplate[i]);
-//     fingerprintTemplate.concat(tmp);
-//   }
-//   Serial.println();
-//   Serial.print("Fingerprint template: " ); Serial.println(fingerprintTemplate);
-//   return fingerprintTemplate;
-// }
-
-// uint8_t deleteFingerprint(uint8_t id) {
-//   uint8_t p = -1;
-
-//   p = finger.deleteModel(id);
-
-//   if (p == FINGERPRINT_OK) {
-//     Serial.println("Delete successfully!");
-//   } else if (p == FINGERPRINT_PACKETRECIEVEERR) {
-//     Serial.println("Communication error");
-//   } else if (p == FINGERPRINT_BADLOCATION) {
-//     Serial.println("Could not delete in that location");
-//   } else if (p == FINGERPRINT_FLASHERR) {
-//     Serial.println("Error writing to flash");
-//   } else {
-//     Serial.print("Unknown error: 0x"); Serial.println(p, HEX);
-//   }
-
-//   return p;
-// }
-
-// void uploadFingerprintTemplate(String fingerprintTemplate){
-//   int checkWifiStatus =  checkWifi();
-//   if(checkWifiStatus == 0) {
-//     clearLCD();
-//     printTextLCD("Connection lost", 0);
-//     return;
-//   }
-
-//   FingerData fingerData(fingerprintTemplate.c_str(), content.c_str());
-//   JSONVar fingerDataObject;
-//   fingerDataObject["fingerprintTemplate"] = fingerData.fingerprintTemplate.c_str();
-//   fingerDataObject["Content"] = fingerData.Content.c_str();
-//   String payload = JSON.stringify(fingerDataObject);
-
-//   http.begin(wifiClient, "http://" SERVER_IP "/api/Hello/fingerprint");
-//   http.addHeader("Content-Type", "application/json");
-//   int httpCode = http.POST(payload);
-//   String payloadData = http.getString();
-//   http.end();
-
-//   if(httpCode <= 0){
-//     clearLCD();
-//     printTextLCD("GET failed: " + http.errorToString(httpCode), 0);
-//     delay(1000);
-//     return;
-//   }
-
-//   if (httpCode != HTTP_CODE_OK){
-//     clearLCD();
-//     printTextLCD("GET failed!!!", 0);
-//     printTextLCD("Status code: " + httpCode, 1);
-//     delay(1000);
-//     return;
-//   }
-
-//   clearLCD();
-//   printTextLCD("Registered successfully", 0);
-//   printTextLCD(payloadData, 1);
-//   delay(3000);
-
-//   registrationMode = false;
-//   content = "";
-// }
-
-// int connectWifi() {
-//   delay(100);
-//   Serial.println("\n\n\n================================");
-//   Serial.println("Connecting to Wifi");
-
-//   WiFi.begin(STASSID, STAPSK);
-//   int c = 0;
-//   while(c < 20){
-//     if(WiFi.status() == WL_CONNECTED){
-//       ECHOLN("Wifi connected!");
-//       ECHO("Local IP: ");
-//       ECHOLN(WiFi.localIP());
-//       return CONNECT_OK;
-//     }
-//     delay(500);
-//     ECHO(".");
-//     c++;
-//   }
-
-//   ECHOLN("");
-//   ECHOLN("Connect timed out");
-//   return CONNECT_TIMEOUT;
-// }
-
-// bool connectDS1307() {
-//   int reconnectTimes = 0;
-//   while(reconnectTimes < 4){
-//     delay(200);
-//     Serial.println("Connect RTC");
-//     if(rtc.begin()){
-//       return true;
-//     }
-//     reconnectTimes++;
-//   }
-//   return false;
-// }
+  return UPLOAD_SUCCESS;
+}

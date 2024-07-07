@@ -67,7 +67,7 @@ int WifiServiceClass::connect(const String &ssid, const String &pass){
 }
 
 
-int WifiServiceClass::checkWifiConnection(const String &ssid, const String &pass){
+int WifiServiceClass::connectNewWifi(const String &ssid, const String &pass){
   ECHOLN("[WifiService][connect] Open STA....");
   ECHO("[WifiService][connect] Wifi connect to: ");
   ECHOLN(ssid);

@@ -14,6 +14,7 @@
 extern ESP8266WebServer* server;
 
 extern bool startConfigServer();
+extern void stopServer();
 extern void handleOk();
 extern void handleRoot();
 extern void handleConnectTo();
