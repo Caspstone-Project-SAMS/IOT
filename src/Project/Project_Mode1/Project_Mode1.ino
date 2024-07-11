@@ -104,7 +104,6 @@ int button_state;    // the current reading from the input pin
 
 
 //========================Set up code==================================
-
 void connectButton(){
   pinMode(BUTTON_PIN, INPUT_PULLDOWN_16);
 }

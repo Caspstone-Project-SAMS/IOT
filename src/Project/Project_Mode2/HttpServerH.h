@@ -9,10 +9,12 @@
 #include "EEPRomService.h"
 #include "WifiService.h"
 #include "AppDebug.h"
+#include "LCDService.h"
 
 extern ESP8266WebServer* server;
 
-extern void startConfigServer();
+extern bool startConfigServer();
+extern void stopServer();
 extern void handleOk();
 extern void handleRoot();
 extern void handleConnectTo();

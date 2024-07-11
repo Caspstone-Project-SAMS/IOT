@@ -82,7 +82,7 @@ int WifiServiceClass::connectNewWifi(const String &ssid, const String &pass){
 
   ECHOLN("Waiting for Wifi to connect");
   int c = 0;
-  while(c < 30){
+  while(c < 40){
     if(WiFii->status() == WL_CONNECTED){
       ECHOLN("Wifi connected!");
       ECHO("Local IP: ");

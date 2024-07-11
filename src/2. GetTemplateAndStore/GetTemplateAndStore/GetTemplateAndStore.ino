@@ -190,15 +190,15 @@ void connectFingerprintSensor() {
     while (1) { delay(1); }
   }
 
-  // Serial.println(F("Reading sensor parameters"));
-  // finger.getParameters();
-  // Serial.print(F("Status: 0x")); Serial.println(finger.status_reg, HEX);
-  // Serial.print(F("Sys ID: 0x")); Serial.println(finger.system_id, HEX);
-  // Serial.print(F("Capacity: ")); Serial.println(finger.capacity);
-  // Serial.print(F("Security level: ")); Serial.println(finger.security_level);
-  // Serial.print(F("Device address: ")); Serial.println(finger.device_addr, HEX);
-  // Serial.print(F("Packet len: ")); Serial.println(finger.packet_len);
-  // Serial.print(F("Baud rate: ")); Serial.println(finger.baud_rate);
+  Serial.println(F("Reading sensor parameters"));
+  finger.getParameters();
+  Serial.print(F("Status: 0x")); Serial.println(finger.status_reg, HEX);
+  Serial.print(F("Sys ID: 0x")); Serial.println(finger.system_id, HEX);
+  Serial.print(F("Capacity: ")); Serial.println(finger.capacity);
+  Serial.print(F("Security level: ")); Serial.println(finger.security_level);
+  Serial.print(F("Device address: ")); Serial.println(finger.device_addr, HEX);
+  Serial.print(F("Packet len: ")); Serial.println(finger.packet_len);
+  Serial.print(F("Baud rate: ")); Serial.println(finger.baud_rate);
 }
 
 void conenctWifi() {
@@ -300,6 +300,13 @@ void setup() {
   lcd.clear();
   printTextLCD("Prepare data", 0);
   delay(1000);
+
+  //Get template count
+  // uint8_t count = finger.getTemplateCount();
+  // Serial.println("Template count: " + String(count));
+  // while(1){
+  //   delay(1);
+  // }
 
   //Reset data
   resetData();
@@ -492,8 +499,8 @@ void getSchedule() {
 
   String lecturerId = "a829c0b5-78dc-4194-a424-08dc8640e68a";
   String semesterId = "2";
-  String startDate = "2024-06-23";
-  String endDate = "2024-07-01";
+  String startDate = "2024-07-07";
+  String endDate = "2024-07-07";
   String url = "http://" + String(SERVER_IP) + "/api/Schedule?lecturerId=" + lecturerId + "&semesterId=" + semesterId + "&startDate=" + startDate + "&endDate=" + endDate;
   //http://35.221.168.89/api/Schedule?lecturerId=a829c0b5-78dc-4194-a424-08dc8640e68a&semesterId=2&startDate=2024-11-06&endDate=2024-12-06
 
@@ -834,6 +841,25 @@ void writeFingerprintTemplateToSensor(){
             std::string hexPairString(hexPair, hexPair + 2);
             fingerTemplate[i] = convert_hex_to_binary(hexPairString);
           }
+
+          //========================================================================================
+          //========================================================================================
+          //========================================================================================
+          //========================================================================================
+          // for(int test = 1; test < 500; test++){
+          //   finger.write_template_to_sensor(template_buf_size,fingerTemplate);
+          //   finger.storeModel(test);
+          //   Serial.println("Upload: " + String(test));
+          //   delay(50);
+          // }
+          // while(1){
+          //   delay(50);
+          // }
+          //========================================================================================
+          //========================================================================================
+          //========================================================================================
+          //========================================================================================
+          //========================================================================================
 
           if(finger.write_template_to_sensor(template_buf_size,fingerTemplate)){
             if(finger.storeModel(count) == FINGERPRINT_OK){
