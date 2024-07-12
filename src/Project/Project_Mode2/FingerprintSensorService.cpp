@@ -26,150 +26,21 @@ bool FingerprintSensorClass::connectFingerprintSensor(){
 }
 
 
-uint8_t FingerprintSensorClass::getFingerprintEnroll(){
-  // Scan
-  int p = -1;
-  ECHOLN("Waiting for valid finger to enroll");
-  while (p != FINGERPRINT_OK) {
-    p = finger.getImage();
-    switch (p) {
-    case FINGERPRINT_OK:
-      ECHOLN("Image taken");
-      break;
-    case FINGERPRINT_NOFINGER:
-      ECHO(".");
-      break;
-    case FINGERPRINT_PACKETRECIEVEERR:
-      ECHOLN("Communication error");
-      break;
-    case FINGERPRINT_IMAGEFAIL:
-      ECHOLN("Imaging error");
-      break;
-    default:
-      ECHOLN("Unknown error");
-      break;
-    }
-  }
-
-  // Get image 1
-  p = finger.image2Tz(1);
-  switch (p) {
-    case FINGERPRINT_OK:
-      ECHOLN("Image converted");
-      break;
-    case FINGERPRINT_IMAGEMESS:
-      ECHOLN("Image too messy");
-      return p;
-    case FINGERPRINT_PACKETRECIEVEERR:
-      ECHOLN("Communication error");
-      return p;
-    case FINGERPRINT_FEATUREFAIL:
-      ECHOLN("Could not find fingerprint features");
-      return p;
-    case FINGERPRINT_INVALIDIMAGE:
-      ECHOLN("Could not find fingerprint features");
-      return p;
-    default:
-      ECHOLN("Unknown error");
-      return p;
-  }
-
-  // Remove finger
-  ECHOLN("Remove finger");
-  delay(2000);
-  p = 0;
-  while (p != FINGERPRINT_NOFINGER) {
-    p = finger.getImage();
-  }
-
-
-  // Place finger again
-  p = -1;
-  ECHOLN("Place same finger again");
-  while (p != FINGERPRINT_OK) {
-    p = finger.getImage();
-    switch (p) {
-    case FINGERPRINT_OK:
-      ECHOLN("Image taken");
-      break;
-    case FINGERPRINT_NOFINGER:
-      ECHO(".");
-      break;
-    case FINGERPRINT_PACKETRECIEVEERR:
-      ECHOLN("Communication error");
-      break;
-    case FINGERPRINT_IMAGEFAIL:
-      ECHOLN("Imaging error");
-      break;
-    default:
-      ECHOLN("Unknown error");
-      break;
-    }
-  }
-
-  // Get image 2
-  p = finger.image2Tz(2);
-  switch (p) {
-    case FINGERPRINT_OK:
-      ECHOLN("Image converted");
-      break;
-    case FINGERPRINT_IMAGEMESS:
-      ECHOLN("Image too messy");
-      return p;
-    case FINGERPRINT_PACKETRECIEVEERR:
-      ECHOLN("Communication error");
-      return p;
-    case FINGERPRINT_FEATUREFAIL:
-      ECHOLN("Could not find fingerprint features");
-      return p;
-    case FINGERPRINT_INVALIDIMAGE:
-      ECHOLN("Could not find fingerprint features");
-      return p;
-    default:
-      ECHOLN("Unknown error");
-      return p;
-  }
-
-  // Create model
-  ECHOLN("Creating model for fingerprint");
-  p = finger.createModel();
-  if (p == FINGERPRINT_OK) {
-    ECHOLN("Prints matched!");
-  } else if (p == FINGERPRINT_PACKETRECIEVEERR) {
-    ECHOLN("Communication error");
-    return p;
-  } else if (p == FINGERPRINT_ENROLLMISMATCH) {
-    ECHOLN("Fingerprints did not match");
-    return p;
-  } else {
-    ECHOLN("Unknown error");
-    return p;
-  }
-
-  ECHOLN("Created successfully");
-  delay(2000);
-
-  return true;
-}
-
-
-
 uint8_t FingerprintSensorClass::scanFinger(){
   return finger.getImage();
 }
 
-uint8_t FingerprintSensorClass::getImage1(){
-  return finger.image2Tz(1);
+uint8_t FingerprintSensorClass::image2Tz(){
+  return finger.image2Tz();
 }
 
-uint8_t FingerprintSensorClass::getImage2(){
-  return finger.image2Tz(2);
+uint8_t FingerprintSensorClass::seachFinger(){
+  return finger.fingerFastSearch();
 }
 
-uint8_t FingerprintSensorClass::createModel(){
-  return finger.createModel();
+uint16_t FingerprintSensorClass::getFingerID(){
+  return finger.fingerID;
 }
-
 
 
 String FingerprintSensorClass::getFingerprintTemplate(){
@@ -291,6 +162,11 @@ bool FingerprintSensorClass::uploadFingerprintTemplate(const std::string& finger
   }
 
   return false;
+}
+
+
+uint8_t FingerprintSensorClass::getFingerTemplateCount(){
+  return finger.getTemplateCount();
 }
 
 

@@ -40,6 +40,19 @@ using namespace websockets;
 
 
 //=====================================Class definition==================================
+class Attended{
+  public:
+    uint16_t scheduleID;
+    std::string userID;
+    DateTime attendanceTime;
+
+    Attended(uint16_t ScheduleID, std::string UserID, DateTime AttendanceTime){
+      scheduleID = ScheduleID;
+      userID = UserID,
+      attendanceTime = AttendanceTime;
+    }
+};
+
 class Attendance {
   public:
     uint16_t storedFingerID;
@@ -47,15 +60,12 @@ class Attendance {
     std::string userID;
     std::string studentName;
     std::string studentCode;
-    DateTime attendanceTime;
-    bool attended;
 
     Attendance(uint16_t storedFingerId, uint16_t scheduleId, std::string userId, std::string StudentCode) {
       storedFingerID = storedFingerId;
       scheduleID = scheduleId;
       userID = userId;
       studentCode = StudentCode;
-      attended = false;
     }
 
     Attendance(){}
@@ -137,26 +147,16 @@ int button_state;    // the current reading from the input pin
 // LOW = Not pushed - HIGH = Pushed
 //================================
 
-// List of schedules, classes and attendances
+// Data to work with
 std::vector<Schedule> schedules;
+std::vector<Attended> uploadedAttendedList;
+std::vector<Attended> unUploadedAttendedList;
+Schedule* onGoingSchedule = nullptr;
+uint16_t attendanceSessionDuration = 0;
+bool printScheduleInformation = true;
+static unsigned long lastUpdateAttendanceStatus = 0;
+static const unsigned long updateAttendanceStatusIntervalTime = 300000; //5 minutes
 //================================
-
-// Whether if update to server or not
-bool attedancesUpdated = true;
-//================================
-
-bool displayAttendanceSession = true;
-
-// On-going schedule
-//ScheduleData* onGoingSchedule = nullptr;
-//================================
-
-// Check store fingerprint template or not
-bool fingerprintIsStored = false;
-//================================
-
-
-
 //=======================================================================================
 
 
@@ -306,31 +306,36 @@ void setup() {
   resetData();  
   setupDateTime();
 
-  while((lcdTimeout + 2000) > millis()){
-    delay(800);
-  }
-  printTextLCD("Loading datas", 1);
-  lcdTimeout = millis();
+  if(WifiService.checkWifi()){
+    while((lcdTimeout + 2000) > millis()){
+      delay(800);
+    }
+    printTextLCD("Loading datas", 1);
+    lcdTimeout = millis();
 
-  uint8_t total = 0;
-  uint8_t loaded = 0;
-  int loadingStatus = loadingData(total, loaded);
-  while((lcdTimeout + 2000) > millis()){
-    delay(800);
-  }
-  switch(loadingStatus){
-    case CONNECTION_LOST:
-      printTextLCD("Connection lost", 1);
-      break;
-    case GET_SUCCESS:
-      printTextLCD("Get " + String(loaded) +  "/" + String(total) + " schedule", 1);
-      break;
-    case UNDEFINED_ERROR:
-      printTextLCD("Undefined error", 1);
-      break;
-    default:
-      printTextLCD("Undefined error", 1);
-      break;
+    uint8_t total = 0;
+    uint8_t loaded = 0;
+    int loadingStatus = loadingData(total, loaded);
+    while((lcdTimeout + 2000) > millis()){
+      delay(800);
+    }
+    switch(loadingStatus){
+      case CONNECTION_LOST:
+        printTextLCD("Connection lost", 1);
+        break;
+      case GET_FAIL:
+        printTextLCD("Loaded failed", 1);
+        break;
+      case GET_SUCCESS:
+        printTextLCD("Loaded " + String(loaded) +  "/" + String(total) + " schedule", 1);
+        break;
+      case UNDEFINED_ERROR:
+        printTextLCD("Undefined error", 1);
+        break;
+      default:
+        printTextLCD("Undefined error", 1);
+        break;
+    }
   }
 
   delay(2000);
@@ -404,7 +409,9 @@ void handleNormalMode(){
     printTextLCD("Failed to get", 0);
     printTextLCD("current datetime", 1);
     delay(2000);
-  }  
+  }
+
+  getOnGoingSchedule();
 
   // let the websockets client check for incoming messages
   if(websocketClient.available()) {
@@ -413,7 +420,82 @@ void handleNormalMode(){
 }
 
 void handleAttendanceMode(){
+  unsigned long lcdTimeout = 0;
+  uint16_t endTime = getScheduleEndTimeInMinute(onGoingSchedule->startTimeStruct, onGoingSchedule->endTimeStruct);
+  while(1){
+    uint16_t currentTime = getCurrentTimeInMinute();
 
+    if(onGoingSchedule == nullptr){
+      break;
+    }
+    if(endTime < currentTime){
+      break;
+    }
+
+    if(printScheduleInformation){
+      while((lcdTimeout + 2000) > millis()){
+        delay(800);
+      }
+      printTextLCD((onGoingSchedule->classCode + " - " + onGoingSchedule->subjectCode).c_str(), 0);
+      printTextLCD((onGoingSchedule->startTime.substr(0, 5) + "-" + onGoingSchedule->endTime.substr(0, 5)).c_str(), 1);
+      printScheduleInformation = false;
+    }
+
+    if(unUploadedAttendedList.size() > 0 && checkUpdateAttendanceStatus()){
+      updateAttendanceStatusAgain();
+    }
+
+    if(FINGERPSensor.scanFinger() == FINGERPRINT_OK){
+      if(FINGERPSensor.image2Tz() == FINGERPRINT_OK){
+        printTextLCD("Scanning...", 0);
+        if(FINGERPSensor.seachFinger() == FINGERPRINT_OK){
+          uint16_t fingerId = FINGERPSensor.getFingerID();
+          if(fingerId > 0){
+            auto is_matched = [fingerId](const auto& obj){ return obj.storedFingerID == fingerId; };
+            auto attendance_it = std::find_if(onGoingSchedule->attendances.begin(), onGoingSchedule->attendances.end(), is_matched);
+            if (attendance_it != onGoingSchedule->attendances.end()) {
+              //====================Marking attendance===========================
+              //==========Checking whether if attended or not====================
+              uint16_t scheduleID = attendance_it->scheduleID;
+              std::string userID = attendance_it->userID;
+              auto is_already_attended = [scheduleID, userID](const auto& obj){ 
+                return (obj.scheduleID == scheduleID && obj.userID == userID); 
+              };
+              auto it_already_attended = std::find_if(uploadedAttendedList.begin(), uploadedAttendedList.end(), is_already_attended);
+              if(it_already_attended != uploadedAttendedList.end()){
+                printTextLCD((attendance_it->studentCode + " already attended").c_str(), 1);
+              }
+              //================If not, lets marking attendance==================
+              else{
+                DateTime attendedTime = getCurrentDateTimeNow();
+                Attended attended(attendance_it->scheduleID, attendance_it->userID, attendedTime);
+                if(updateAttendanceStatus(attendance_it->scheduleID, attendance_it->userID, attendedTime)){
+                  uploadedAttendedList.push_back(attended);
+                }
+                else{
+                  unUploadedAttendedList.push_back(attended);
+                }
+                printTextLCD((attendance_it->studentCode + " attended").c_str(), 1);
+              }
+            }
+            else{
+              printTextLCD("You're not in class", 1);
+            }
+          }
+          else{
+            printTextLCD("Finger not matched", 1);
+          }
+        }
+        else{
+          printTextLCD("Finger not matched", 1);
+        }
+        lcdTimeout = millis();
+        printScheduleInformation = true;
+      }
+    }
+
+    delay(10);
+  }
 }
 //=======================================================================================
 
@@ -448,6 +530,24 @@ bool getCurrentDateTime(){
 
   parseDateTimeToString();
   return true;
+}
+
+DateTime getCurrentDateTimeNow(){
+  DateTime now;
+  if(RTCService.getDS1307DateTime(now)){
+    return now;
+  }
+  else{
+    if(WifiService.checkWifi() != CONNECT_OK){
+      return DateTime(0, 0, 0);
+    }
+    bool updateTime = timeClient.update();
+    if(!updateTime){
+      return DateTime(0, 0, 0);
+    }
+    unsigned long unix_epoch = timeClient.getEpochTime();    // Get Unix epoch time from the NTP server
+    return DateTime(year(unix_epoch), month(unix_epoch), day(unix_epoch), hour(unix_epoch), minute(unix_epoch), second(unix_epoch));
+  }
 }
 
 void parseDateTimeToString(){
@@ -492,6 +592,24 @@ String getCurrentDate(){
   CurrenrDate[8] = day_  / 10 + 48;
   CurrenrDate[9] = day_  % 10 + 48;
   return CurrenrDate;
+}
+
+uint16_t getCurrentTimeInMinute(){
+  DateTime now;
+  if(RTCService.getDS1307DateTime(now)){
+    return now.hour() * 60 + now.minute();
+  }
+  else{
+    if(WifiService.checkWifi() != CONNECT_OK){
+      return 0;
+    }
+    bool updateTime = timeClient.update();
+    if(!updateTime){
+      return 0;
+    }
+    unsigned long unix_epoch = timeClient.getEpochTime();    // Get Unix epoch time from the NTP server
+    return hour(unix_epoch) * 60 + minute(unix_epoch);
+  }
 }
 
 bool checkUpdateDateTime() {
@@ -671,7 +789,6 @@ int getSchedules(uint8_t& totalSchedules) {
   //http://34.81.224.196/api/Schedule?lecturerId=a829c0b5-78dc-4194-a424-08dc8640e68a&quantity=10&semesterId=2&startDate=2024-07-07&endDate=2024-07-07
 
   http.begin(wifiClient, url);
-  http.end();
 
   int httpCode = http.GET();
   if (httpCode != HTTP_CODE_OK){
@@ -710,6 +827,7 @@ int getSchedules(uint8_t& totalSchedules) {
     }
   }
 
+  http.end();
   return GET_SUCCESS;
 }
 
@@ -721,7 +839,6 @@ int getScheduleInformation(Schedule& schedule, uint16_t& storeModelID){
   while(true){
     String calledUrl = baseUrl + "&startPage=" + String(page) + "&endPage=" + String(page);
     http.begin(wifiClient, calledUrl);
-    http.end();
 
     int httpCode = http.GET();
     if (httpCode != HTTP_CODE_OK){
@@ -758,10 +875,152 @@ int getScheduleInformation(Schedule& schedule, uint16_t& storeModelID){
     }
 
     page++;
+    http.end();
     delay(10);
   }
 
   return GET_SUCCESS;
+}
+
+void getOnGoingSchedule(){
+  if(schedules.size() == 0){
+    return;
+  }
+
+  for(Schedule& schedule : schedules){
+    if(checkOnDate(schedule.dateStruct)){
+      if(checkOnTime(schedule.startTimeStruct, schedule.endTimeStruct)){
+        onGoingSchedule = &schedule;
+        appMode = ATTENDANCE_MODE;
+        return;
+      }
+    }
+  }
+}
+
+bool checkOnDate(const struct tm& date){
+  if((date.tm_year+1900) != year_){
+    return false;
+  }
+  if((date.tm_mon+1) != month_){
+    return false;
+  }
+  if(date.tm_mday != day_){
+    return false;
+  }
+  return true;
+}
+
+bool checkOnTime(const struct tm& startTime, const struct tm& endTime){
+  uint32_t start = (startTime.tm_hour * 60 + startTime.tm_min) * 60 + startTime.tm_sec;
+  uint32_t end = (endTime.tm_hour * 60 + endTime.tm_min) * 60 + endTime.tm_sec;
+  uint32_t now = (hour_ * 60 + minute_) * 60 + second_;
+  
+  if(end < start){
+    if(now > start || now < end){
+      return true;
+    }
+  }
+  else{
+    if(start < now && now < end){
+      return true;
+    }
+  }
+  return false;
+}
+
+uint16_t getScheduleEndTimeInMinute(const struct tm& startTime, const struct tm& endTime){
+  if(attendanceSessionDuration >= 5){
+    uint16_t start = startTime.tm_hour * 60 + startTime.tm_min;
+    return start + attendanceSessionDuration;
+  }
+  uint16_t end = endTime.tm_hour * 60 + endTime.tm_min;
+  return end;
+}
+
+bool updateAttendanceStatus(const uint16_t& scheduleID, const std::string& userID, const DateTime& attendedTime){
+  char buf[] = "YYYY-MM-DD hh:mm:ss";
+  String dateTime = attendedTime.toString(buf);
+  dateTime[10] = 'T';
+
+  //=====================================
+  char buf1[] = "YYYY-MM-DD hh:mm:ss";
+  String dateTime1 = attendedTime.toString(buf1);
+  Serial.println(dateTime1);
+  //=====================================
+
+  if(!WifiService.checkWifi()) {
+    return false;
+  }
+
+  //2024-06-11T16:29:24
+  //http://35.221.168.89/api/Attendance/update-attendance-status?scheduleID=5&attendanceStatus=3&attendanceTime=2024-06-11T16%3A29%3A24&studentID=fa00c1a6-0a14-435c-a421-08dc8640e68a
+  String url = "http://" + String(SERVER_IP) + "/api/Attendance/update-attendance-status?attendanceStatus=1&scheduleID=" + String(scheduleID) + "&studentID=" + userID.c_str() + "&attendanceTime=" + dateTime;
+
+  http.begin(wifiClient, url);
+  int httpCode = http.PUT("");
+  http.end();
+
+  if (httpCode != HTTP_CODE_OK){
+    return false;
+  }
+
+  String payload = http.getString();
+  ECHOLN("[updateAttendanceStatus] Put request payload: " + payload);
+
+  return true;
+}
+
+void updateAttendanceStatusAgain(){
+  if(!WifiService.checkWifi()) {
+    return;
+  }
+
+  //http://35.221.168.89/api/Attendance/update-list-student-status
+  String url = "http://" + String(SERVER_IP) + "/api/Attendance/update-list-student-status";
+
+  char buf[] = "YYYY-MM-DDThh:mm:ss";
+
+  // Create a payload string
+  JSONVar attendanceArray;
+  uint8_t index = 0;
+  for(Attended& item : unUploadedAttendedList){
+    JSONVar attendance;
+    attendance["ScheduleID"] = item.scheduleID;
+    attendance["StudentID"] = item.userID.c_str();
+    attendance["AttendanceStatus"] = "1";
+    attendance["AttendanceTime"] = item.attendanceTime.toString(buf);
+    attendanceArray[index++] = attendance;
+  }
+  String payload = JSON.stringify(attendanceArray);
+
+  http.begin(wifiClient, url);
+  http.addHeader("Content-Type", "application/json");
+  int httpCode = http.PUT(payload);
+  if(httpCode == HTTP_CODE_OK){
+    uploadedAttendedList.insert(uploadedAttendedList.end(), unUploadedAttendedList.begin(), unUploadedAttendedList.end());
+    unUploadedAttendedList.clear(); // Makes it empty
+  }
+
+  http.end();
+}
+
+bool checkUpdateAttendanceStatus() {
+  unsigned long now = millis();
+  if(now < lastUpdateAttendanceStatus){
+    lastUpdateAttendanceStatus = 0;
+    return false;
+  }
+  if(lastUpdateAttendanceStatus >= 2*updateAttendanceStatusIntervalTime){
+    return false;
+  }
+  else if(now > (lastUpdateAttendanceStatus + updateAttendanceStatusIntervalTime)){
+    lastUpdateAttendanceStatus = now;
+    return true;
+  }
+  else{
+    return false;
+  }
 }
 
 void onEventsCallback(WebsocketsEvent event, String data) {

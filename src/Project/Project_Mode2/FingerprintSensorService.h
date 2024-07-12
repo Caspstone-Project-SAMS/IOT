@@ -15,13 +15,13 @@ class FingerprintSensorClass
     FingerprintSensorClass();
     ~FingerprintSensorClass();
     bool connectFingerprintSensor();
-    uint8_t getFingerprintEnroll();
     uint8_t scanFinger();
-    uint8_t getImage1();
-    uint8_t getImage2();
-    uint8_t createModel();
+    uint8_t image2Tz();
+    uint8_t seachFinger();
+    uint16_t getFingerID();
     String getFingerprintTemplate();
     bool uploadFingerprintTemplate(const std::string& fingerData, uint16_t storeModelID);
+    uint8_t getFingerTemplateCount();
     uint8_t deleteFingerprint(uint8_t id);
     void emptyDatabase();
   private:
