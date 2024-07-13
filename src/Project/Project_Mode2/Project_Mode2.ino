@@ -3,6 +3,7 @@
 
 #include <Arduino_JSON.h>
 #include <string>
+#include <unordered_map>
 
 #include <WiFiUdp.h>
 #include <NTPClient.h>               
@@ -55,20 +56,26 @@ class Attended{
 
 class Attendance {
   public:
-    uint16_t storedFingerID;
+    std::vector<uint16_t> storedFingerID;
     uint16_t scheduleID;
     std::string userID;
     std::string studentName;
     std::string studentCode;
 
-    Attendance(uint16_t storedFingerId, uint16_t scheduleId, std::string userId, std::string StudentCode) {
-      storedFingerID = storedFingerId;
-      scheduleID = scheduleId;
-      userID = userId;
-      studentCode = StudentCode;
+    Attendance(){}
+};
+
+class StoredFingerprint{
+  public:
+    uint16_t storedFingerID;
+    std::string userID;
+
+    StoredFingerprint(uint16_t StoredFingerID, std::string UserID){
+      storedFingerID = StoredFingerID;
+      userID = UserID;
     }
 
-    Attendance(){}
+    StoredFingerprint(){}
 };
 
 class Schedule {
@@ -85,6 +92,7 @@ class Schedule {
     struct tm dateStruct;
     struct tm startTimeStruct;
     struct tm endTimeStruct;
+    uint8_t order;
 
     std::vector<Attendance> attendances;
 };
@@ -356,6 +364,7 @@ void loop() {
     handleNormalMode();
   }
   checkModeReset();
+  delay(1);
 }
 
 void handleSetUpMode(){
@@ -366,34 +375,28 @@ void handleSetUpMode(){
 }
 
 void handleNormalMode(){
-  if(!WifiService.checkWifi()){
-    printTextLCD("Connection failed", 0);
-    printTextLCD("Connect new wifi", 1);
-    while(appMode != SERVER_MODE){
-      checkModeReset();
-      delay(50);
-    }
-    return;
-  }
-
-  if(!websocketClient.available()){
-    printTextLCD("Websocket falied", 0);
-    printTextLCD("Reconnecting...", 1);
-    delay(1000);
-    uint8_t c = 1;
-    while(c <= 5){
-      printTextLCD("Reconnect: " + String(c), 1);
-      unsigned long lcdTimeout = millis();
-      if(websocketClient.connect(WEBSOCKETS_SERVER_HOST, WEBSOCKETS_SERVER_PORT, "/ws?isRegisterModule=true")){
-        while((lcdTimeout + 1500) > millis()){
-          delay(800);
+  if(WifiService.checkWifi()){
+    if(!websocketClient.available()){
+      printTextLCD("Websocket falied", 0);
+      printTextLCD("Reconnecting...", 1);
+      delay(1000);
+      uint8_t c = 1;
+      while(c <= 5){
+        printTextLCD("Reconnect: " + String(c), 1);
+        unsigned long lcdTimeout = millis();
+        if(websocketClient.connect(WEBSOCKETS_SERVER_HOST, WEBSOCKETS_SERVER_PORT, "/ws?isRegisterModule=true")){
+          while((lcdTimeout + 1500) > millis()){
+            delay(800);
+          }
+          printTextLCD("Connect websocket successfully", 1);
+          delay(1500);
+          clearLCD();
+          break;
         }
-        printTextLCD("Connect websocket successfully", 1);
-        break;
+        c++;
       }
-      c++;
+      return;
     }
-    return;
   }
 
   if(checkUpdateDateTime()){
@@ -411,7 +414,10 @@ void handleNormalMode(){
     delay(2000);
   }
 
-  getOnGoingSchedule();
+  if(getOnGoingSchedule()){
+    printScheduleInformation = true;
+    return;
+  }
 
   // let the websockets client check for incoming messages
   if(websocketClient.available()) {
@@ -423,12 +429,26 @@ void handleAttendanceMode(){
   unsigned long lcdTimeout = 0;
   uint16_t endTime = getScheduleEndTimeInMinute(onGoingSchedule->startTimeStruct, onGoingSchedule->endTimeStruct);
   while(1){
+    if(attendanceModeToSetupMode()){
+      while(1){
+        handleSetUpMode();
+        if(attendanceModeToSetupMode()){
+          printScheduleInformation = true;
+          break;
+        }
+      }
+    }
+
     uint16_t currentTime = getCurrentTimeInMinute();
 
     if(onGoingSchedule == nullptr){
+      ECHOLN("Slot end with nullptr");
+      endAttendanceSession();
       break;
     }
     if(endTime < currentTime){
+      ECHOLN("Slot end");
+      endAttendanceSession();
       break;
     }
 
@@ -651,6 +671,7 @@ void checkModeReset(){
           
           // Setup normal mode before start (all everythings related to wifi)
           setupNormalMode();
+          setupDateTime();
           delay(2000);
 
           clearLCD();
@@ -741,7 +762,6 @@ void setupNormalMode(){
   else if(wifiStatus == CONNECT_SUSPENDED){
     printTextLCD("Suspended wifi", 1);
   }
-  setupDateTime();
 }
 
 void resetNormalMode(){
@@ -749,6 +769,86 @@ void resetNormalMode(){
     websocketClient.close();
   }
   timeClient.end();
+}
+
+bool attendanceModeToSetupMode(){
+  bool updated = false;
+  button_state = digitalRead(BUTTON_PIN);
+  if(button_state == HIGH){
+    settingTimeout = millis();
+    while(button_state == HIGH)
+    {
+      if((settingTimeout + SETTING_HOLD_TIME) <= millis()){
+        // Change mode
+        if(appMode == SERVER_MODE){
+          updated = true;
+          appMode = ATTENDANCE_MODE;
+          clearLCD();
+          printTextLCD("Changing to", 0);
+          printTextLCD("normal mode...", 1);
+
+          delay(1500);
+
+          // Stop server
+          stopServer();
+          
+          // Setup normal mode before start (all everythings related to wifi)
+          setupNormalMode();
+          delay(2000);
+
+          clearLCD();
+        }
+        else if(appMode == ATTENDANCE_MODE){
+          updated = true;
+          unsigned long lcdTimeout = 0;
+
+          clearLCD();
+          printTextLCD("Changing to", 0);
+          printTextLCD("setup mode...", 1);
+          lcdTimeout = millis();
+
+          // Reset all data of normal mode
+          resetNormalMode();
+
+          while((lcdTimeout + 1500) > millis()){
+            delay(800);
+          }
+          clearLCD();
+          printTextLCD("Setting up", 0);
+
+          // Start server and AP wifi
+          if(!startConfigServer()){
+            printTextLCD("Server not found", 1);
+            delay(2000);
+            printTextLCD("Error when", 0);
+            printTextLCD("setting up", 1);
+            while(1){
+              delay(50);
+            }
+          }
+          else{
+            printTextLCD("Server started", 1);
+          }
+          lcdTimeout = millis();
+
+          WifiService.setupAP();
+
+          appMode = SERVER_MODE;
+
+          while((lcdTimeout + 2000) > millis()){
+            delay(800);
+          }
+          clearLCD();
+          printTextLCD("Mode: setup", 0);
+          printTextLCD(String(WIFI_AP_SSID) + ":" + String(WIFI_AP_PASSWORD), 1);
+        }
+        break;
+      }
+      button_state = digitalRead(BUTTON_PIN);
+      delay(50);
+    }
+  }
+  return updated;
 }
 
 int loadingData(uint8_t& total, uint8_t& loaded){
@@ -759,14 +859,17 @@ int loadingData(uint8_t& total, uint8_t& loaded){
   int getSchedulesStatus = getSchedules(total);
   switch(getSchedulesStatus){
     case GET_FAIL:
+      ECHOLN("[loadingData] Get failed at getSchedule()");
       return GET_FAIL;
       break;
     case INVALID_DATA:
+      ECHOLN("[loadingData] Get failed at getSchedule()");
       return GET_FAIL;
       break;
     case GET_SUCCESS:
       break;
     default:
+      ECHOLN("[loadingData] Get failed at getSchedule()");
       return UNDEFINED_ERROR;
       break;
   }
@@ -777,6 +880,7 @@ int loadingData(uint8_t& total, uint8_t& loaded){
       loaded++;
     }
   }
+  ECHOLN("Stored models: " + String(storeModelID));
 
   // Make a notification about the status of receiving schedules
   // Call notification API here
@@ -792,6 +896,7 @@ int getSchedules(uint8_t& totalSchedules) {
 
   int httpCode = http.GET();
   if (httpCode != HTTP_CODE_OK){
+    ECHOLN("[getSchedules] HTTP is not OK: " + String(httpCode));
     return GET_FAIL;
   }
 
@@ -799,6 +904,7 @@ int getSchedules(uint8_t& totalSchedules) {
   JSONVar scheduleDataArray = JSON.parse(payload);
   // Check whether if data is in correct format
   if(JSON.typeof(scheduleDataArray)!="array"){
+    ECHOLN("[getSchedules] Invalid data format: " + payload);
     return INVALID_DATA;
   }
 
@@ -829,6 +935,18 @@ int getSchedules(uint8_t& totalSchedules) {
 
   http.end();
   return GET_SUCCESS;
+}
+
+// not yet
+void orderSchedules(){
+  if(schedules.size() == 0){
+    return;
+  }
+
+  std::unordered_map<int, int> scheduleOrders;
+  for(const Schedule& schedule : schedules){
+
+  }
 }
 
 int getScheduleInformation(Schedule& schedule, uint16_t& storeModelID){
@@ -882,9 +1000,9 @@ int getScheduleInformation(Schedule& schedule, uint16_t& storeModelID){
   return GET_SUCCESS;
 }
 
-void getOnGoingSchedule(){
+bool getOnGoingSchedule(){
   if(schedules.size() == 0){
-    return;
+    return false;
   }
 
   for(Schedule& schedule : schedules){
@@ -892,10 +1010,12 @@ void getOnGoingSchedule(){
       if(checkOnTime(schedule.startTimeStruct, schedule.endTimeStruct)){
         onGoingSchedule = &schedule;
         appMode = ATTENDANCE_MODE;
-        return;
+        return true;
       }
     }
   }
+
+  return false;
 }
 
 bool checkOnDate(const struct tm& date){
@@ -1021,6 +1141,11 @@ bool checkUpdateAttendanceStatus() {
   else{
     return false;
   }
+}
+
+void endAttendanceSession(){
+  appMode = NORMAL_MODE;
+  onGoingSchedule = nullptr;
 }
 
 void onEventsCallback(WebsocketsEvent event, String data) {
