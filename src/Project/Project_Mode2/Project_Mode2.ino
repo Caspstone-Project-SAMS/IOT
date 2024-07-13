@@ -65,19 +65,6 @@ class Attendance {
     Attendance(){}
 };
 
-class StoredFingerprint{
-  public:
-    uint16_t storedFingerID;
-    std::string userID;
-
-    StoredFingerprint(uint16_t StoredFingerID, std::string UserID){
-      storedFingerID = StoredFingerID;
-      userID = UserID;
-    }
-
-    StoredFingerprint(){}
-};
-
 class Schedule {
   public:
     uint16_t scheduleID;
@@ -95,6 +82,19 @@ class Schedule {
     uint8_t order;
 
     std::vector<Attendance> attendances;
+};
+
+class StoredFingerprint {
+  public:
+    std::vector<uint16_t> storedFingerID;
+    std::string userID;
+
+    storedFingerprint(std::vector<uint16_t> StoredFingerID, std::string UserID){
+      userID = UserID;
+      storedFingerID = StoredFingerID;
+    }
+
+    storedFingerprint(){}
 };
 //=======================================================================================
 
@@ -159,6 +159,7 @@ int button_state;    // the current reading from the input pin
 std::vector<Schedule> schedules;
 std::vector<Attended> uploadedAttendedList;
 std::vector<Attended> unUploadedAttendedList;
+std::vector<StoredFingerprint> storedFingerprints;
 Schedule* onGoingSchedule = nullptr;
 uint16_t attendanceSessionDuration = 0;
 bool printScheduleInformation = true;
@@ -471,8 +472,12 @@ void handleAttendanceMode(){
         if(FINGERPSensor.seachFinger() == FINGERPRINT_OK){
           uint16_t fingerId = FINGERPSensor.getFingerID();
           if(fingerId > 0){
-            auto is_matched = [fingerId](const auto& obj){ return obj.storedFingerID == fingerId; };
-            auto attendance_it = std::find_if(onGoingSchedule->attendances.begin(), onGoingSchedule->attendances.end(), is_matched);
+            auto finger_matched = [fingerId](const auto& obj){ return obj == fingerId; };
+            auto finger_check = [fingerId, &finger_matched](const auto& obj){
+              auto it_finger_check = std::find_if(obj.storedFingerID.begin(), obj.storedFingerID.end(), finger_matched);
+              return it_finger_check != obj.storedFingerID.end(); 
+            };
+            auto attendance_it = std::find_if(onGoingSchedule->attendances.begin(), onGoingSchedule->attendances.end(), finger_check);
             if (attendance_it != onGoingSchedule->attendances.end()) {
               //====================Marking attendance===========================
               //==========Checking whether if attended or not====================
@@ -481,8 +486,9 @@ void handleAttendanceMode(){
               auto is_already_attended = [scheduleID, userID](const auto& obj){ 
                 return (obj.scheduleID == scheduleID && obj.userID == userID); 
               };
-              auto it_already_attended = std::find_if(uploadedAttendedList.begin(), uploadedAttendedList.end(), is_already_attended);
-              if(it_already_attended != uploadedAttendedList.end()){
+              auto it_already_attended_uploaded = std::find_if(uploadedAttendedList.begin(), uploadedAttendedList.end(), is_already_attended);
+              auto it_already_attended_unUploaded = std::find_if(unUploadedAttendedList.begin(), unUploadedAttendedList.end(), is_already_attended);
+              if(it_already_attended_uploaded != uploadedAttendedList.end() || it_already_attended_unUploaded != unUploadedAttendedList.end()){
                 printTextLCD((attendance_it->studentCode + " already attended").c_str(), 1);
               }
               //================If not, lets marking attendance==================
@@ -880,7 +886,7 @@ int loadingData(uint8_t& total, uint8_t& loaded){
       loaded++;
     }
   }
-  ECHOLN("Stored models: " + String(storeModelID));
+  ECHOLN("Stored models: " + String(storeModelID - 1));
 
   // Make a notification about the status of receiving schedules
   // Call notification API here
@@ -981,15 +987,30 @@ int getScheduleInformation(Schedule& schedule, uint16_t& storeModelID){
       attendance.studentName = (const char*)students[i]["studentName"];
       attendance.studentCode = (const char*)students[i]["studentCode"];
       if(JSON.typeof(students[i]["fingerprintTemplateData"])=="array"){
-        for(uint8_t fingerIndex = 0; fingerIndex < students[i]["fingerprintTemplateData"].length(); fingerIndex++){
-          bool uploadFingerStatus = FINGERPSensor.uploadFingerprintTemplate((const char*)students[i]["fingerprintTemplateData"][fingerIndex], storeModelID);
-          if(uploadFingerStatus){
-            attendance.storedFingerID = storeModelID;
-            ++storeModelID;
-            schedule.attendances.push_back(attendance);
+        // if there is a student information already added, so the fingerprint template also
+        std::string userID = attendance.userID;
+        auto finger_already = [userID](const auto& obj){
+          return (obj.userID == userID && obj.storedFingerID.size() > 0);
+        };
+        auto it_finger_already = std::find_if(storedFingerprints.begin(), storedFingerprints.end(), finger_already);
+        if(it_finger_already != storedFingerprints.end()){
+          attendance.storedFingerID = it_finger_already->storedFingerID;
+        }
+        else{
+          StoredFingerprint storedFingerprint;
+          storedFingerprint.userID = userID;
+          for(uint8_t fingerIndex = 0; fingerIndex < students[i]["fingerprintTemplateData"].length(); fingerIndex++){
+            bool uploadFingerStatus = FINGERPSensor.uploadFingerprintTemplate((const char*)students[i]["fingerprintTemplateData"][fingerIndex], storeModelID);
+            if(uploadFingerStatus){
+              attendance.storedFingerID.push_back(storeModelID);
+              storedFingerprint.storedFingerID.push_back(storeModelID);
+              ++storeModelID;
+            }
           }
+          storedFingerprints.push_back(storedFingerprint);
         }
       }
+      schedule.attendances.push_back(attendance);
     }
 
     page++;
