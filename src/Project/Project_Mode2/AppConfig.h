@@ -16,5 +16,7 @@
 #define NORMAL_MODE 1
 #define SERVER_MODE 2
 #define ATTENDANCE_MODE 3
+#define PREPARE_ATTENDANCE_MODE 4
+#define CONNECT_MODULE 5
 
 #endif

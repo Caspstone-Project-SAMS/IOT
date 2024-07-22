@@ -32,6 +32,30 @@ class FingerData{
       Content = _Content;
     }
 };
+
+class RegisteringSession{
+  public:
+    std::string user;
+    std::string studentCode;
+    std::string studentID;
+    uint8_t mode;
+    int8_t currentFingerNumber;
+    uint16_t sessionID;
+
+    RegisteringSession(){}
+
+    RegisteringSession(std::string StudentCode, std::string StudentID, int Mode ,int SessionID){
+      studentCode = StudentCode;
+      studentID = StudentID;
+      mode = Mode;
+      sessionID = SessionID;
+    }
+
+    RegisteringSession(int SessionId, std::string User){
+      sessionID = SessionId;
+      user = User;
+    }
+};
 //===================================================================
 
 
@@ -81,9 +105,11 @@ HTTPClient http;
 //================================
 
 
-// Is registering fingerprint template?
-bool registrationMode = false;
-String content;
+// Fingerprint template registration session
+String studentCode;
+String studentID;
+int registrationNumber = 0;
+RegisteringSession* session = nullptr;
 //================================
 
 
@@ -103,6 +129,13 @@ int button_state;    // the current reading from the input pin
 //================================
 
 
+
+String key = "I3ZbMRjf0lfag1uSJzuDKtz8J";
+
+bool printConnectingMode = false;
+
+
+
 //========================Set up code==================================
 void connectButton(){
   pinMode(BUTTON_PIN, INPUT_PULLDOWN_16);
@@ -115,23 +148,83 @@ bool connectWebSocket() {
 
   // run callback when messages are received
   websocketClient.onMessage([&](WebsocketsMessage message) {
-    Serial.print("Got Message: ");
+    ECHO("Got Message: ");
     //Serial.println(static_cast<std::underlying_type<MessageType>::type>(message.type()));
 
     if(message.isText()){
+      ECHOLN("Is text");
       // Get data from here
       const char* data = message.c_str();
       JSONVar message = JSON.parse(data);
       String event = message["Event"];
-      String receiveData = message["Data"];
+      JSONVar receiveData = message["Data"];
       if(event == "RegisterFingerprint"){
-        appMode = REGISTRATION_MODE;
-        content = receiveData;
+        if(session){
+          uint16_t sessionId = receiveData["SessionID"];
+          if(session->sessionID == sessionId){
+            session->studentCode = (const char*)receiveData["StudentCode"];
+            session->studentID = (const char*)receiveData["StudentID"];
+            session->mode = receiveData["Mode"];
+
+            if(session->mode == 1 || session->mode == 3){
+              session->currentFingerNumber = 1;
+            }
+            else if(session->mode == 2){
+              session->currentFingerNumber = 2;
+            }
+
+            appMode = REGISTRATION_MODE;
+
+            websocketClient.send(String("Fingerprint registration ") + String(sessionId));
+            delay(50);
+            websocketClient.send(String("Fingerprint registration ") + String(sessionId));
+          }
+        }
       }
+      else if(event == "ConnectModule"){
+        uint16_t sessionId = receiveData["SessionID"];
+        std::string user = (const char*)receiveData["User"];
+        session = new RegisteringSession(sessionId, user);
+        appMode = CONNECT_MODULE;
+        printConnectingMode = true;
+        String sendMessage = "Connected " + String(sessionId);
+
+        websocketClient.send(sendMessage.c_str());
+        delay(50);
+        websocketClient.send(sendMessage.c_str());
+      }
+      else if(event == "CancelSession"){
+        uint16_t sessionId = receiveData["SessionID"];
+        if(session){
+          if(session->sessionID == sessionId){
+            session = nullptr;
+            appMode = NORMAL_MODE;
+
+            websocketClient.send(String("Cancel session ") + String(sessionId));
+            delay(50);
+            websocketClient.send(String("Cancel session ") + String(sessionId));
+          }
+        }
+      }
+    }
+    else if(message.isBinary()){
+      ECHOLN("Is binary");
+      const char* data = message.c_str();
+      if(strcmp(data, "ping") == 0){
+        ECHOLN("Receive custom ping, lets send pong");
+        String sendMessage = "pong";
+
+        websocketClient.sendBinary(sendMessage.c_str(), sendMessage.length());
+        delay(50);
+        websocketClient.sendBinary(sendMessage.c_str(), sendMessage.length());
+      }
+    }
+    else{
+      ECHOLN("Does not found anything");
     }
   });
 
-  return websocketClient.connect(WEBSOCKETS_SERVER_HOST, WEBSOCKETS_SERVER_PORT, "/ws?isRegisterModule=true");
+  return websocketClient.connect(WEBSOCKETS_SERVER_HOST, WEBSOCKETS_SERVER_PORT, "/ws/module?key=" + key);
 }
 
 void resetData(){
@@ -261,7 +354,25 @@ void loop() {
   else if(appMode == NORMAL_MODE){
     handleNormalMode();
   }
+  else if(appMode == CONNECT_MODULE){
+    handleConnectModuleMode();
+  }
   checkModeReset();
+}
+
+void handleConnectModuleMode(){
+  if(session){
+    if(printConnectingMode){
+      clearLCD();
+      printTextNoResetLCD("Module connected", 0);
+      printTextNoResetLCD(String("User: ") + session->user.c_str(), 1);
+      printConnectingMode = false;
+    }
+  }
+
+  if(websocketClient.available()) {
+      websocketClient.poll();
+    }
 }
 
 void handleSetUpMode(){
@@ -290,7 +401,7 @@ void handleNormalMode(){
     while(c <= 5){
       printTextLCD("Reconnect: " + String(c), 1);
       unsigned long lcdTimeout = millis();
-      if(websocketClient.connect(WEBSOCKETS_SERVER_HOST, WEBSOCKETS_SERVER_PORT, "/ws?isRegisterModule=true")){
+      if(websocketClient.connect(WEBSOCKETS_SERVER_HOST, WEBSOCKETS_SERVER_PORT, "/ws/module?key=" + key)){
         while((lcdTimeout + 1500) > millis()){
           delay(800);
         }
@@ -342,7 +453,7 @@ void handleRegistrationMode(){
     while(c <= 5){
       printTextLCD("Reconnect: " + String(c), 1);
       unsigned long lcdTimeout = millis();
-      if(websocketClient.connect(WEBSOCKETS_SERVER_HOST, WEBSOCKETS_SERVER_PORT, "/ws?isRegisterModule=true")){
+      if(websocketClient.connect(WEBSOCKETS_SERVER_HOST, WEBSOCKETS_SERVER_PORT, "/ws/module?key=" + key)){
         while((lcdTimeout + 1500) > millis()){
           delay(800);
         }
@@ -354,8 +465,7 @@ void handleRegistrationMode(){
     return;
   }
 
-  clearLCD();
-  printTextLCD(content, 0);
+  printTextLCD(session->studentCode.c_str(), 0);
 
   // Scan
   printTextLCD("Place finger", 1);
@@ -363,6 +473,9 @@ void handleRegistrationMode(){
   while (p != FINGERPRINT_OK) {
     p = FINGERPSensor.scanFinger();
     checkModeReset();
+    if(websocketClient.available()) {
+      websocketClient.poll();
+    }
     delay(1);
   }
 
@@ -380,6 +493,9 @@ void handleRegistrationMode(){
   while(p != FINGERPRINT_NOFINGER){
     p = FINGERPSensor.scanFinger();
     checkModeReset();
+    if(websocketClient.available()) {
+      websocketClient.poll();
+    }
     delay(1);
   }
 
@@ -389,6 +505,9 @@ void handleRegistrationMode(){
   while (p != FINGERPRINT_OK){
     p = FINGERPSensor.scanFinger();
     checkModeReset();
+    if(websocketClient.available()) {
+      websocketClient.poll();
+    }
     delay(1);
   }
 
@@ -432,8 +551,19 @@ void handleRegistrationMode(){
       printTextLCD("Upload failed", 1);
       break;
     case UPLOAD_SUCCESS:
-      appMode = NORMAL_MODE;
-      content = "";
+      if(session->mode == 3){
+        if(session->currentFingerNumber == 2){
+          appMode = NORMAL_MODE;
+          session = nullptr;
+        }
+        else if(session->currentFingerNumber == 1){
+          session->currentFingerNumber = 2;
+        }
+      }
+      else if(session->mode == 1 || session->mode == 2){
+        appMode = NORMAL_MODE;
+        session = nullptr;
+      }
       printTextLCD("Upload successfully", 1);
       break;
     case INVALID_DATA:
@@ -621,7 +751,7 @@ void setupNormalMode(){
     printTextLCD("NTP server connected", 1);
     lcdTimeout = millis();
 
-    bool checkWebSocket = websocketClient.connect(WEBSOCKETS_SERVER_HOST, WEBSOCKETS_SERVER_PORT, "/ws?isRegisterModule=true");
+    bool checkWebSocket = websocketClient.connect(WEBSOCKETS_SERVER_HOST, WEBSOCKETS_SERVER_PORT, "/ws/module?key=" + key);
     while((lcdTimeout + 1500) > millis()){
       delay(800);
     }
@@ -666,18 +796,19 @@ int uploadFingerprintTemplate(String fingerprintTemplate){
     return CONNECTION_LOST;
   }
 
-  if(fingerprintTemplate == "" || content == ""){
+  if(fingerprintTemplate == "" || session->studentID == "" || session->sessionID <= 0){
     return INVALID_DATA;
   }
 
   ECHOLN("[Main][UploadTemplate] Uploading fingerprint template...");
-  FingerData fingerData(fingerprintTemplate.c_str(), content.c_str());
   JSONVar fingerDataObject;
-  fingerDataObject["fingerprintTemplate"] = fingerData.fingerprintTemplate.c_str();
-  fingerDataObject["Content"] = fingerData.Content.c_str();
+  fingerDataObject["FingerprintTemplate"] = fingerprintTemplate.c_str();
+  fingerDataObject["StudentID"] = session->studentID.c_str();
+  fingerDataObject["SessionID"] = String(session->sessionID).c_str(); 
+  fingerDataObject["FingerNumber"] = String(session->currentFingerNumber).c_str();
   String payload = JSON.stringify(fingerDataObject);
 
-  http.begin(wifiClient, "http://" SERVER_IP "/api/Hello/fingerprint");
+  http.begin(wifiClient, "http://" SERVER_IP "/api/Fingerprint");
   http.addHeader("Content-Type", "application/json");
   int httpCode = http.POST(payload);
   String payloadData = http.getString();
