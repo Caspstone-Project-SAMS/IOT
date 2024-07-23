@@ -39,8 +39,8 @@ class FingerData{
 #define WEBSOCKETS_PROTOCOL "ws"
 
 #ifndef STASSID
-#define STASSID "FPTU_Library" //Nhim
-#define STAPSK "12345678" //1357924680
+#define STASSID "Nhim" //"FPTU_Library" //Nhim
+#define STAPSK "1357924680" //"12345678" //1357924680
 // #define STASSID "Nhim"
 // #define STAPSK "1357924680"
 // #define STASSID "Garage Coffee"

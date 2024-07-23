@@ -41,6 +41,9 @@ class RegisteringSession{
     uint8_t mode;
     int8_t currentFingerNumber;
     uint16_t sessionID;
+    uint8_t durationInMin;
+    unsigned long endTimeStamp;
+    bool normalTimeStampCase;
 
     RegisteringSession(){}
 
@@ -51,9 +54,13 @@ class RegisteringSession{
       sessionID = SessionID;
     }
 
-    RegisteringSession(int SessionId, std::string User){
+    RegisteringSession(int SessionId, std::string User, uint8_t DurationInMin, unsigned long StartTimeStamp){
       sessionID = SessionId;
       user = User;
+      durationInMin = DurationInMin;
+      endTimeStamp = StartTimeStamp + (durationInMin * 60 * 1000);
+      if(endTimeStamp > StartTimeStamp) normalTimeStampCase = true;
+      else normalTimeStampCase = false;
     }
 };
 //===================================================================
@@ -182,9 +189,18 @@ bool connectWebSocket() {
         }
       }
       else if(event == "ConnectModule"){
+        if(session){
+          websocketClient.send("Connected by other");
+          delay(50);
+          websocketClient.send("Connected by other");
+        }
+
         uint16_t sessionId = receiveData["SessionID"];
         std::string user = (const char*)receiveData["User"];
-        session = new RegisteringSession(sessionId, user);
+        uint8_t durationInMin = receiveData["DurationInMin"];
+        unsigned long now = millis();
+        //unsigned long endTimestamp = now + (durationInMin * 60 * 1000);
+        session = new RegisteringSession(sessionId, user, durationInMin, now);
         appMode = CONNECT_MODULE;
         printConnectingMode = true;
         String sendMessage = "Connected " + String(sessionId);
@@ -367,6 +383,25 @@ void handleConnectModuleMode(){
       printTextNoResetLCD("Module connected", 0);
       printTextNoResetLCD(String("User: ") + session->user.c_str(), 1);
       printConnectingMode = false;
+    }
+  }
+
+  if(session->normalTimeStampCase){
+    if(millis() > session->endTimeStamp){
+      appMode = NORMAL_MODE;
+      session = nullptr;
+      websocketClient.send(String("Session cancelled ") + String(session->sessionID));
+      delay(50);
+      websocketClient.send(String("Session cancelled ") + String(session->sessionID));
+    }
+  }
+  else{
+    if(millis() > session->endTimeStamp && millis() < 4294907290){
+      appMode = NORMAL_MODE;
+      session = nullptr;
+      websocketClient.send(String("Session cancelled ") + String(session->sessionID));
+      delay(50);
+      websocketClient.send(String("Session cancelled ") + String(session->sessionID));
     }
   }
 

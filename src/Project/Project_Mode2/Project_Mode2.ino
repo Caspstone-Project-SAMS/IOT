@@ -102,6 +102,9 @@ class PreparingAttendanceSession{
     uint16_t scheduleID; 
     uint16_t sessionID;
     std::string user;
+    uint8_t durationInMin;
+    unsigned long endTimeStamp;
+    bool normalTimeStampCase;
 
     PreparingAttendanceSession(){}
 
@@ -111,9 +114,13 @@ class PreparingAttendanceSession{
       user = User;
     }
 
-    PreparingAttendanceSession(uint16_t SessionId, std::string User){
+    PreparingAttendanceSession(uint16_t SessionId, std::string User, uint8_t DurationInMin, unsigned long StartTimeStamp){
       sessionID = SessionId;
       user = User;
+      durationInMin = DurationInMin;
+      endTimeStamp = StartTimeStamp + (durationInMin * 60 * 1000);
+      if(endTimeStamp > StartTimeStamp) normalTimeStampCase = true;
+      else normalTimeStampCase = false;
     }
 };
 //=======================================================================================
@@ -221,9 +228,17 @@ bool connectWebSocket() {
       JSONVar receiveData = message["Data"];
       
       if(event == "ConnectModule"){
+        if(session){
+          websocketClient.send("Connected by other");
+          delay(50);
+          websocketClient.send("Connected by other");
+        }
+        
         uint16_t sessionId = receiveData["SessionID"];
         std::string user = (const char*)receiveData["User"];
-        session = new PreparingAttendanceSession(sessionId, user);
+        uint8_t durationInMin = receiveData["DurationInMin"];
+        unsigned long now = millis();
+        session = new PreparingAttendanceSession(sessionId, user, durationInMin, now);
         appMode = CONNECT_MODULE;
         printConnectingMode = true;
         String sendMessage = "Connected " + String(sessionId);
@@ -245,6 +260,22 @@ bool connectWebSocket() {
             websocketClient.send(String("Prepare attendance ") + String(sessionId));
           }
         }
+      }
+      else if(event == "StopAttendance"){
+        uint16_t scheduleID = receiveData["ScheduleID"];
+        if(onGoingSchedule){
+          if(onGoingSchedule->scheduleID == scheduleID){
+            // Stop attendance
+            endAttendanceSession();
+
+            websocketClient.send(String("Stop attendance ") + String(scheduleID));
+            delay(50);
+            websocketClient.send(String("Stop attendance ") + String(scheduleID));
+          }
+        }
+      }
+      else if(event == "PrepareSchedules"){
+        
       }
       
     }
@@ -449,6 +480,25 @@ void handleConnectModuleMode(){
       printTextNoResetLCD("Module connected", 0);
       printTextNoResetLCD(String("User: ") + session->user.c_str(), 1);
       printConnectingMode = false;
+    }
+  }
+
+  if(session->normalTimeStampCase){
+    if(millis() > session->endTimeStamp){
+      appMode = NORMAL_MODE;
+      session = nullptr;
+      websocketClient.send(String("Session cancelled ") + String(session->sessionID));
+      delay(50);
+      websocketClient.send(String("Session cancelled ") + String(session->sessionID));
+    }
+  }
+  else{
+    if(millis() > session->endTimeStamp && millis() < 4294907290){
+      appMode = NORMAL_MODE;
+      session = nullptr;
+      websocketClient.send(String("Session cancelled ") + String(session->sessionID));
+      delay(50);
+      websocketClient.send(String("Session cancelled ") + String(session->sessionID));
     }
   }
 
@@ -1134,8 +1184,8 @@ void orderSchedules(){
 
 int getScheduleInformation(Schedule& schedule, uint16_t& storeModelID){
   int page = 1;
-  String baseUrl = "http://" + String(SERVER_IP) + "/api/Student/get-students-by-classId?isModule=true&quantity=3&classID=" + String(schedule.classID);
-  //http://34.81.224.196/api/Student/get-students-by-classId?classID=2&startPage=1&endPage=1&quantity=3&isModule=true
+  String baseUrl = "http://" + String(SERVER_IP) + "/api/Student/get-students-by-classId?isModule=true&quantity=2&classID=" + String(schedule.classID);
+  //http://34.81.224.196/api/Student/get-students-by-classId?classID=2&startPage=1&endPage=1&quantity=2&isModule=true
 
   while(true){
     String calledUrl = baseUrl + "&startPage=" + String(page) + "&endPage=" + String(page);
