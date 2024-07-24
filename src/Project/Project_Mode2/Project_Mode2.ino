@@ -672,13 +672,24 @@ void handleAttendancePreparationMode(){
     websocketClient.poll();
   }
   if(session){
+    // Clear all data
+    resetData();
+
     printTextLCD("Loading schedule data", 0);
     bool result = getScheduleById(session->scheduleID);
+
+    // then notify to server that the job is finished
     if(result){
       printTextLCD("Loaded successfully", 1);
+      websocketClient.send(String("Schedule preparation completed successfully ") + String(session->sessionID));
+      delay(50);
+      websocketClient.send(String("Schedule preparation completed successfully ") + String(session->sessionID));
     }
     else{
       printTextLCD("Loaded failed", 1);
+      websocketClient.send(String("Schedule preparation completed failed ") + String(session->sessionID));
+      delay(50);
+      websocketClient.send(String("Schedule preparation completed failed ") + String(session->sessionID));
     }
   }
   else{
@@ -1186,6 +1197,10 @@ int getScheduleInformation(Schedule& schedule, uint16_t& storeModelID){
   int page = 1;
   String baseUrl = "http://" + String(SERVER_IP) + "/api/Student/get-students-by-classId?isModule=true&quantity=2&classID=" + String(schedule.classID);
   //http://34.81.224.196/api/Student/get-students-by-classId?classID=2&startPage=1&endPage=1&quantity=2&isModule=true
+
+  if(session && appMode == PREPARE_ATTENDANCE_MODE){
+    baseUrl = baseUrl + "&sessionId=" + String(session->sessionID);
+  }
 
   while(true){
     String calledUrl = baseUrl + "&startPage=" + String(page) + "&endPage=" + String(page);

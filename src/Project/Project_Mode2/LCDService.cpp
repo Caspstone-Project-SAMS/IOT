@@ -20,7 +20,7 @@ void printTextLCD(String message, int row){
       lcd.setCursor(0, row);
       lcd.print("");
       lcd.print(message.substring(pos, pos + 16));
-      delay(300);
+      delay(130);
     }
   }
   else{
@@ -43,7 +43,7 @@ void printTextNoResetLCD(String message, int row){
       lcd.setCursor(0, row);
       lcd.print("");
       lcd.print(message.substring(pos, pos + 16));
-      delay(300);
+      delay(130);
     }
   }
   else{
