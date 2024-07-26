@@ -136,16 +136,26 @@ int button_state;    // the current reading from the input pin
 //================================
 
 
+// Active Buzzer
+const unsigned char ACTIVE_BUZZER_PIN = 12;
+//================================
+
+
 
 String key = "I3ZbMRjf0lfag1uSJzuDKtz8J";
 
 bool printConnectingMode = false;
+unsigned long limitRange = 4294907290;
 
 
 
 //========================Set up code==================================
 void connectButton(){
   pinMode(BUTTON_PIN, INPUT_PULLDOWN_16);
+}
+
+void connectBuzzer(){
+  pinMode(ACTIVE_BUZZER_PIN, OUTPUT) ;
 }
 
 bool connectWebSocket() {
@@ -182,9 +192,9 @@ bool connectWebSocket() {
 
             appMode = REGISTRATION_MODE;
 
-            websocketClient.send(String("Fingerprint registration ") + String(sessionId));
+            websocketClient.send(String("Register fingerprint ") + String(sessionId));
             delay(50);
-            websocketClient.send(String("Fingerprint registration ") + String(sessionId));
+            websocketClient.send(String("Register fingerprint ") + String(sessionId));
           }
         }
       }
@@ -194,20 +204,26 @@ bool connectWebSocket() {
           delay(50);
           websocketClient.send("Connected by other");
         }
+        else{
+          digitalWrite(ACTIVE_BUZZER_PIN, HIGH);
 
-        uint16_t sessionId = receiveData["SessionID"];
-        std::string user = (const char*)receiveData["User"];
-        uint8_t durationInMin = receiveData["DurationInMin"];
-        unsigned long now = millis();
-        //unsigned long endTimestamp = now + (durationInMin * 60 * 1000);
-        session = new RegisteringSession(sessionId, user, durationInMin, now);
-        appMode = CONNECT_MODULE;
-        printConnectingMode = true;
-        String sendMessage = "Connected " + String(sessionId);
+          uint16_t sessionId = receiveData["SessionID"];
+          std::string user = (const char*)receiveData["User"];
+          uint8_t durationInMin = receiveData["DurationInMin"];
+          unsigned long now = millis();
+          //unsigned long endTimestamp = now + (durationInMin * 60 * 1000);
+          session = new RegisteringSession(sessionId, user, durationInMin, now);
+          appMode = CONNECT_MODULE;
+          printConnectingMode = true;
+          String sendMessage = "Connected " + String(sessionId);
 
-        websocketClient.send(sendMessage.c_str());
-        delay(50);
-        websocketClient.send(sendMessage.c_str());
+          websocketClient.send(sendMessage.c_str());
+          delay(50);
+          websocketClient.send(sendMessage.c_str());
+
+          delay(500);
+          digitalWrite(ACTIVE_BUZZER_PIN, LOW);
+        }
       }
       else if(event == "CancelSession"){
         uint16_t sessionId = receiveData["SessionID"];
@@ -220,6 +236,13 @@ bool connectWebSocket() {
             delay(50);
             websocketClient.send(String("Cancel session ") + String(sessionId));
           }
+        }
+      }
+      else if(event == "CheckCurrentSession"){
+        if(session){
+          websocketClient.send("Check current session " + String(session->sessionID));
+          delay(50);
+          websocketClient.send("Check current session " + String(session->sessionID));
         }
       }
     }
@@ -275,10 +298,12 @@ void setup() {
   unsigned long lcdTimeout = 0;
   bool check = false;
 
+  connectBuzzer();
+  delay(10);
   connectButton();
-  delay(50);
+  delay(10);
   connectLCD();
-  delay(50);
+  delay(10);
 
   clearLCD();
   printTextLCD("Setting up...", 0);
@@ -388,20 +413,20 @@ void handleConnectModuleMode(){
 
   if(session->normalTimeStampCase){
     if(millis() > session->endTimeStamp){
-      appMode = NORMAL_MODE;
-      session = nullptr;
       websocketClient.send(String("Session cancelled ") + String(session->sessionID));
       delay(50);
       websocketClient.send(String("Session cancelled ") + String(session->sessionID));
+      appMode = NORMAL_MODE;
+      session = nullptr;
     }
   }
   else{
-    if(millis() > session->endTimeStamp && millis() < 4294907290){
-      appMode = NORMAL_MODE;
-      session = nullptr;
+    if(millis() > session->endTimeStamp && millis() < limitRange){
       websocketClient.send(String("Session cancelled ") + String(session->sessionID));
       delay(50);
       websocketClient.send(String("Session cancelled ") + String(session->sessionID));
+      appMode = NORMAL_MODE;
+      session = nullptr;
     }
   }
 
@@ -480,7 +505,7 @@ void handleRegistrationMode(){
     return;
   }
 
-  if(!websocketClient.available()){
+  if(!websocketClient.available(true)){
     printTextLCD("Websocket falied", 0);
     printTextLCD("Reconnecting...", 1);
     delay(1000);
@@ -511,7 +536,13 @@ void handleRegistrationMode(){
     if(websocketClient.available()) {
       websocketClient.poll();
     }
+    if(appMode != REGISTRATION_MODE){
+      break;
+    }
     delay(1);
+  }
+  if(appMode != REGISTRATION_MODE){
+    return;
   }
 
   // Get image 1
@@ -531,7 +562,13 @@ void handleRegistrationMode(){
     if(websocketClient.available()) {
       websocketClient.poll();
     }
+    if(appMode != REGISTRATION_MODE){
+      break;
+    }
     delay(1);
+  }
+  if(appMode != REGISTRATION_MODE){
+    return;
   }
 
   // Place finger again
@@ -543,7 +580,13 @@ void handleRegistrationMode(){
     if(websocketClient.available()) {
       websocketClient.poll();
     }
+    if(appMode != REGISTRATION_MODE){
+      break;
+    }
     delay(1);
+  }
+  if(appMode != REGISTRATION_MODE){
+    return;
   }
 
   // Get image 2
@@ -588,6 +631,11 @@ void handleRegistrationMode(){
     case UPLOAD_SUCCESS:
       if(session->mode == 3){
         if(session->currentFingerNumber == 2){
+          // Notify to server that the fingerprint registration is finished
+          websocketClient.send(String("Fingerprint registration completed ") + String(session->sessionID));
+          delay(50);
+          websocketClient.send(String("Fingerprint registration completed ") + String(session->sessionID));
+
           appMode = NORMAL_MODE;
           session = nullptr;
         }
@@ -596,6 +644,11 @@ void handleRegistrationMode(){
         }
       }
       else if(session->mode == 1 || session->mode == 2){
+        // Notify to server that the fingerprint registration is finished
+        websocketClient.send(String("Fingerprint registration completed ") + String(session->sessionID));
+        delay(50);
+        websocketClient.send(String("Fingerprint registration completed ") + String(session->sessionID));
+
         appMode = NORMAL_MODE;
         session = nullptr;
       }

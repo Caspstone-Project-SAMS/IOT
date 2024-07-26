@@ -186,6 +186,10 @@ int button_state;    // the current reading from the input pin
 // LOW = Not pushed - HIGH = Pushed
 //================================
 
+// Active Buzzer
+const unsigned char ACTIVE_BUZZER_PIN = 12;
+//================================
+
 // Data to work with
 std::vector<Schedule> schedules;
 std::vector<Attended> uploadedAttendedList;
@@ -204,10 +208,16 @@ String key = "xSJ6nDkyRcjYn81hPy5H9fRZg";
 
 bool printConnectingMode = false;
 
+unsigned long limitRange = 4294907290;
+
 
 //=====================================Set up code=======================================
 void connectButton(){
   pinMode(BUTTON_PIN, INPUT_PULLDOWN_16);
+}
+
+void connectBuzzer(){
+  pinMode(ACTIVE_BUZZER_PIN, OUTPUT) ;
 }
 
 bool connectWebSocket() {
@@ -233,19 +243,25 @@ bool connectWebSocket() {
           delay(50);
           websocketClient.send("Connected by other");
         }
+        else{
+          digitalWrite(ACTIVE_BUZZER_PIN, HIGH);
         
-        uint16_t sessionId = receiveData["SessionID"];
-        std::string user = (const char*)receiveData["User"];
-        uint8_t durationInMin = receiveData["DurationInMin"];
-        unsigned long now = millis();
-        session = new PreparingAttendanceSession(sessionId, user, durationInMin, now);
-        appMode = CONNECT_MODULE;
-        printConnectingMode = true;
-        String sendMessage = "Connected " + String(sessionId);
+          uint16_t sessionId = receiveData["SessionID"];
+          std::string user = (const char*)receiveData["User"];
+          uint8_t durationInMin = receiveData["DurationInMin"];
+          unsigned long now = millis();
+          session = new PreparingAttendanceSession(sessionId, user, durationInMin, now);
+          appMode = CONNECT_MODULE;
+          printConnectingMode = true;
+          String sendMessage = "Connected " + String(sessionId);
 
-        websocketClient.send(sendMessage.c_str());
-        delay(50);
-        websocketClient.send(sendMessage.c_str());
+          websocketClient.send(sendMessage.c_str());
+          delay(50);
+          websocketClient.send(sendMessage.c_str());
+
+          delay(500);
+          digitalWrite(ACTIVE_BUZZER_PIN, LOW);
+        }
       }
       else if(event == "PrepareAttendance"){
         if(session){
@@ -275,9 +291,14 @@ bool connectWebSocket() {
         }
       }
       else if(event == "PrepareSchedules"){
-        
       }
-      
+      else if(event == "CheckCurrentSession"){
+        if(session){
+          websocketClient.send("Check current session " + String(session->sessionID));
+          delay(50);
+          websocketClient.send("Check current session " + String(session->sessionID));
+        }
+      }
     }
     else if(message.isBinary()){
       ECHOLN("Is binary");
@@ -305,6 +326,9 @@ void resetData(){
 
   // Emty data in RAM
   schedules.clear();
+  storedFingerprints.clear();
+  uploadedAttendedList.clear();
+  unUploadedAttendedList.clear();
 }
 
 void setupDateTime(){
@@ -337,6 +361,8 @@ void setup() {
   unsigned long lcdTimeout = 0;
   bool check = false;
 
+  connectBuzzer();
+  delay(10);
   connectButton();
   delay(50);
   connectLCD();
@@ -485,20 +511,20 @@ void handleConnectModuleMode(){
 
   if(session->normalTimeStampCase){
     if(millis() > session->endTimeStamp){
-      appMode = NORMAL_MODE;
-      session = nullptr;
       websocketClient.send(String("Session cancelled ") + String(session->sessionID));
       delay(50);
       websocketClient.send(String("Session cancelled ") + String(session->sessionID));
+      appMode = NORMAL_MODE;
+      session = nullptr;
     }
   }
   else{
-    if(millis() > session->endTimeStamp && millis() < 4294907290){
-      appMode = NORMAL_MODE;
-      session = nullptr;
+    if(millis() > session->endTimeStamp && millis() < limitRange){
       websocketClient.send(String("Session cancelled ") + String(session->sessionID));
       delay(50);
       websocketClient.send(String("Session cancelled ") + String(session->sessionID));
+      appMode = NORMAL_MODE;
+      session = nullptr;
     }
   }
 
@@ -610,6 +636,11 @@ void handleAttendanceMode(){
         printTextLCD("Scanning...", 0);
         if(FINGERPSensor.seachFinger() == FINGERPRINT_OK){
           uint16_t fingerId = FINGERPSensor.getFingerID();
+
+          ECHOLN("");
+          ECHOLN("Found finger Id: " + fingerId);
+          ECHOLN("");
+
           if(fingerId > 0){
             auto finger_matched = [fingerId](const auto& obj){ return obj == fingerId; };
             auto finger_check = [fingerId, &finger_matched](const auto& obj){
@@ -1173,8 +1204,28 @@ bool getScheduleById(uint16_t scheduleId){
 
   uint16_t storeModelID = 1;
   int getInformationResult = getScheduleInformation(schedule, storeModelID);
+
   if(getInformationResult == GET_SUCCESS){
     schedules.push_back(schedule);
+
+    ECHOLN("");
+    ECHOLN("");
+    ECHOLN("Finger Id: " + String(storeModelID));
+    ECHOLN("Stored fingers: " + String(storedFingerprints.size()));
+    ECHOLN("Schedules: " + String(schedules.size()));
+    for(Schedule& schedule : schedules){
+      ECHOLN(String("Schedule of ") + schedule.classCode.c_str() + " has " + String(schedule.attendances.size()) + " attendances");
+      for(Attendance& attendance : schedule.attendances){
+        for(uint16_t fingerId : attendance.storedFingerID){
+          ECHO(String(fingerId));
+        }
+        ECHOLN();
+      }
+    }
+    ECHOLN("");
+    ECHOLN("");
+
+
     return true;
   }
 
@@ -1225,12 +1276,14 @@ int getScheduleInformation(Schedule& schedule, uint16_t& storeModelID){
     }
 
     for(int i = 0; i < students.length(); i++) {
-      Attendance attendance;
-      attendance.scheduleID = schedule.scheduleID;
-      attendance.userID = (const char*)students[i]["userID"];
-      attendance.studentName = (const char*)students[i]["studentName"];
-      attendance.studentCode = (const char*)students[i]["studentCode"];
-      if(JSON.typeof(students[i]["fingerprintTemplateData"])=="array"){
+      // If student have finger informations, lets store it
+      if(JSON.typeof(students[i]["fingerprintTemplateData"])=="array" && students[i]["fingerprintTemplateData"].length() > 0){
+        Attendance attendance;
+        attendance.scheduleID = schedule.scheduleID;
+        attendance.userID = (const char*)students[i]["userID"];
+        attendance.studentName = (const char*)students[i]["studentName"];
+        attendance.studentCode = (const char*)students[i]["studentCode"];
+
         // if there is a student information already added, so the fingerprint template also
         std::string userID = attendance.userID;
         auto finger_already = [userID](const auto& obj){
@@ -1245,16 +1298,19 @@ int getScheduleInformation(Schedule& schedule, uint16_t& storeModelID){
           storedFingerprint.userID = userID;
           for(uint8_t fingerIndex = 0; fingerIndex < students[i]["fingerprintTemplateData"].length(); fingerIndex++){
             bool uploadFingerStatus = FINGERPSensor.uploadFingerprintTemplate((const char*)students[i]["fingerprintTemplateData"][fingerIndex], storeModelID);
+            if(!uploadFingerStatus) ECHOLN("Store finger failed for id: " + String(storeModelID));
             if(uploadFingerStatus){
               attendance.storedFingerID.push_back(storeModelID);
               storedFingerprint.storedFingerID.push_back(storeModelID);
               ++storeModelID;
             }
+            delay(1);
           }
           storedFingerprints.push_back(storedFingerprint);
         }
+        schedule.attendances.push_back(attendance);
       }
-      schedule.attendances.push_back(attendance);
+      delay(1);
     }
 
     page++;
