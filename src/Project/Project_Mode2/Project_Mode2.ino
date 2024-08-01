@@ -99,6 +99,7 @@ class StoredFingerprint {
 
 class PreparingAttendanceSession{
   public:
+    std::string prepareDate;
     uint16_t scheduleID; 
     uint16_t sessionID;
     std::string user;
@@ -131,7 +132,7 @@ class PreparingAttendanceSession{
 // Other datas
 String content;
 String lecturerId = "a829c0b5-78dc-4194-a424-08dc8640e68a";
-String semesterId = "2";
+String semesterId = "5";
 //==================================
 
 
@@ -227,7 +228,7 @@ bool connectWebSocket() {
 
   // run callback when messages are received
   websocketClient.onMessage([&](WebsocketsMessage message) {
-    Serial.print("Got Message: ");
+    //Serial.print("Got Message: ");
     //Serial.println(static_cast<std::underlying_type<MessageType>::type>(message.type()));
 
     if(message.isText()){
@@ -259,7 +260,7 @@ bool connectWebSocket() {
           delay(50);
           websocketClient.send(sendMessage.c_str());
 
-          delay(500);
+          delay(1000);
           digitalWrite(ACTIVE_BUZZER_PIN, LOW);
         }
       }
@@ -290,8 +291,6 @@ bool connectWebSocket() {
           }
         }
       }
-      else if(event == "PrepareSchedules"){
-      }
       else if(event == "CheckCurrentSession"){
         if(session){
           websocketClient.send("Check current session " + String(session->sessionID));
@@ -299,9 +298,22 @@ bool connectWebSocket() {
           websocketClient.send("Check current session " + String(session->sessionID));
         }
       }
+      else if(event == "PrepareSchedules"){
+        if(session){
+          uint16_t sessionId = receiveData["SessionID"];
+          if(session->sessionID == sessionId){
+            session->prepareDate = (const char*)receiveData["PrepareDate"];
+
+            appMode = PREPARE_SCHEDULES_MODE;
+
+            websocketClient.send(String("Prepare schedules ") + String(sessionId));
+            delay(50);
+            websocketClient.send(String("Prepare schedules ") + String(sessionId));
+          }
+        }
+      }
     }
     else if(message.isBinary()){
-      ECHOLN("Is binary");
       const char* data = message.c_str();
       if(strcmp(data, "ping") == 0){
         ECHOLN("Receive custom ping, lets send pong");
@@ -495,6 +507,9 @@ void loop() {
   else if(appMode == PREPARE_ATTENDANCE_MODE){
     handleAttendancePreparationMode();
   }
+  else if(appMode == PREPARE_SCHEDULES_MODE){
+    handlePrepareSchedulesMode();
+  }
   checkModeReset();
   delay(1);
 }
@@ -550,7 +565,7 @@ void handleNormalMode(){
       while(c <= 5){
         printTextLCD("Reconnect: " + String(c), 1);
         unsigned long lcdTimeout = millis();
-        if(websocketClient.connect(WEBSOCKETS_SERVER_HOST, WEBSOCKETS_SERVER_PORT, "/ws/module?key=" + key)){
+        if(connectWebSocket()){
           while((lcdTimeout + 1500) > millis()){
             delay(800);
           }
@@ -610,11 +625,21 @@ void handleAttendanceMode(){
     if(onGoingSchedule == nullptr){
       ECHOLN("Slot end with nullptr");
       endAttendanceSession();
+      clearLCD();
+      delay(1);
       break;
     }
     if(endTime < currentTime){
       ECHOLN("Slot end");
       endAttendanceSession();
+      clearLCD();
+      delay(1);
+      break;
+    }
+
+    if(appMode != ATTENDANCE_MODE){
+      onGoingSchedule = nullptr;
+      clearLCD();
       break;
     }
 
@@ -707,20 +732,24 @@ void handleAttendancePreparationMode(){
     resetData();
 
     printTextLCD("Loading schedule data", 0);
-    bool result = getScheduleById(session->scheduleID);
+
+    uint16_t totalFingers = 0;
+    uint16_t uploadedFingers = 0;
+
+    bool result = getScheduleById(session->scheduleID, totalFingers, uploadedFingers);
 
     // then notify to server that the job is finished
     if(result){
       printTextLCD("Loaded successfully", 1);
       websocketClient.send(String("Schedule preparation completed successfully ") + String(session->sessionID));
       delay(50);
-      websocketClient.send(String("Schedule preparation completed successfully ") + String(session->sessionID));
+      //websocketClient.send(String("Schedule preparation completed successfully ") + String(session->sessionID));
     }
     else{
       printTextLCD("Loaded failed", 1);
       websocketClient.send(String("Schedule preparation completed failed ") + String(session->sessionID));
       delay(50);
-      websocketClient.send(String("Schedule preparation completed failed ") + String(session->sessionID));
+      //websocketClient.send(String("Schedule preparation completed failed ") + String(session->sessionID));
     }
   }
   else{
@@ -736,6 +765,76 @@ void handleAttendancePreparationMode(){
   if(websocketClient.available()) {
     websocketClient.poll();
   }
+  clearLCD();
+}
+
+void handlePrepareSchedulesMode(){
+  if(websocketClient.available()) {
+    websocketClient.poll();
+  }
+
+  if(session){
+    // Clear all data
+    resetData();
+
+    clearLCD();
+    printTextLCD("Loading schedules data", 0);
+
+    uint8_t total = 0;
+    uint8_t loaded = 0;
+    uint16_t totalFingers = 0;
+    uint16_t uploadedFingers = 0;
+    int loadingStatus = loadingData(total, loaded, totalFingers, uploadedFingers);
+
+    ECHOLN("[handlePrepareSchedulesMode] uploaded " + String(uploadedFingers) + "/" + String(totalFingers));
+    ECHOLN("[handlePrepareSchedulesMode] uploaded " + String(uploadedFingers) + "/" + String(totalFingers));
+    ECHOLN("[handlePrepareSchedulesMode] uploaded " + String(uploadedFingers) + "/" + String(totalFingers));
+    ECHOLN("[handlePrepareSchedulesMode] uploaded " + String(uploadedFingers) + "/" + String(totalFingers));
+    ECHOLN("[handlePrepareSchedulesMode] uploaded " + String(uploadedFingers) + "/" + String(totalFingers));
+
+    switch(loadingStatus){
+      case CONNECTION_LOST:
+        printTextLCD("Connection lost", 1);
+        websocketClient.send(String("Schedule preparation completed failed ") + String(session->sessionID));
+        delay(50);
+        break;
+      case GET_FAIL:
+        printTextLCD("Loaded failed", 1);
+        websocketClient.send(String("Schedule preparation completed failed ") + String(session->sessionID));
+        delay(50);
+        break;
+      case GET_SUCCESS:
+        printTextLCD("Loaded " + String(loaded) +  "/" + String(total) + " schedule", 1);
+        websocketClient.send(String("Schedule preparation completed successfully ") + String(session->sessionID));
+        delay(50);
+        break;
+      case UNDEFINED_ERROR:
+        printTextLCD("Undefined error", 1);
+        websocketClient.send(String("Schedule preparation completed failed ") + String(session->sessionID));
+        delay(50);
+        break;
+      default:
+        printTextLCD("Undefined error", 1);
+        websocketClient.send(String("Schedule preparation completed failed ") + String(session->sessionID));
+        delay(50);
+        break;
+    }
+  }
+  else{
+    printTextLCD("Loading failed", 0);
+    printTextLCD("Session not started", 1);
+  }
+
+  appMode = NORMAL_MODE;
+  session = nullptr;
+  if(websocketClient.available()) {
+    websocketClient.poll();
+  }
+  delay(2000);
+  if(websocketClient.available()) {
+    websocketClient.poll();
+  }
+  clearLCD();
 }
 //=======================================================================================
 
@@ -964,7 +1063,7 @@ void setupNormalMode(){
     printTextLCD("NTP server connected", 1);
     lcdTimeout = millis();
 
-    bool checkWebSocket = websocketClient.connect(WEBSOCKETS_SERVER_HOST, WEBSOCKETS_SERVER_PORT, "/ws/module?key=" + key);
+    bool checkWebSocket = connectWebSocket();
     while((lcdTimeout + 1500) > millis()){
       delay(800);
     }
@@ -1071,7 +1170,7 @@ bool attendanceModeToSetupMode(){
   return updated;
 }
 
-int loadingData(uint8_t& total, uint8_t& loaded){
+int loadingData(uint8_t& total, uint8_t& loaded, uint16_t& totalFingers, uint16_t& uploadedFingers){
   if(!WifiService.checkWifi()) {
     return CONNECTION_LOST;
   }
@@ -1096,11 +1195,22 @@ int loadingData(uint8_t& total, uint8_t& loaded){
 
   uint16_t storeModelID = 1;
   for(Schedule& schedule : schedules){
-    if(getScheduleInformation(schedule, storeModelID) == GET_SUCCESS){
+    if(getScheduleInformation(schedule, storeModelID, totalFingers) == GET_SUCCESS){
       loaded++;
     }
   }
   ECHOLN("Stored models: " + String(storeModelID - 1));
+  uploadedFingers = storeModelID - 1;
+
+  for(Schedule& schedule : schedules){
+      ECHOLN(String("Schedule of ") + schedule.classCode.c_str() + " has " + String(schedule.attendances.size()) + " attendances");
+      for(Attendance& attendance : schedule.attendances){
+        for(uint16_t fingerId : attendance.storedFingerID){
+          ECHO(String(fingerId));
+        }
+        ECHOLN();
+      }
+    }
 
   // Make a notification about the status of receiving schedules
   // Call notification API here
@@ -1109,8 +1219,13 @@ int loadingData(uint8_t& total, uint8_t& loaded){
 
 int getSchedules(uint8_t& totalSchedules) {
   String currentDate = getCurrentDate();
+  if(session){
+    currentDate = session->prepareDate.c_str();
+  }
   String url = "http://" + String(SERVER_IP) + "/api/Schedule?lecturerId=" + lecturerId + "&semesterId=" + semesterId + "&startDate=" + currentDate + "&endDate=" + currentDate + "&quantity=10";
   //http://34.81.224.196/api/Schedule?lecturerId=a829c0b5-78dc-4194-a424-08dc8640e68a&quantity=10&semesterId=2&startDate=2024-07-07&endDate=2024-07-07
+  
+  ECHOLN(url);
 
   http.begin(wifiClient, url);
 
@@ -1122,11 +1237,18 @@ int getSchedules(uint8_t& totalSchedules) {
   }
 
   String payload = http.getString();
+
+  ECHOLN(payload);
+
   JSONVar scheduleDataArray = JSON.parse(payload);
   // Check whether if data is in correct format
   if(JSON.typeof(scheduleDataArray)!="array"){
     ECHOLN("[getSchedules] Invalid data format: " + payload);
     return INVALID_DATA;
+  }
+
+  if(websocketClient.available()) {
+    websocketClient.poll();
   }
 
   // Load schedules information
@@ -1158,7 +1280,7 @@ int getSchedules(uint8_t& totalSchedules) {
   return GET_SUCCESS;
 }
 
-bool getScheduleById(uint16_t scheduleId){
+bool getScheduleById(uint16_t scheduleId, uint16_t& totalFingers, uint16_t& uploadedFingers){
   String url = "http://" + String(SERVER_IP) + "/api/Schedule/" + String(scheduleId);
   //http://34.81.224.196/api/Schedule/81
 
@@ -1203,7 +1325,8 @@ bool getScheduleById(uint16_t scheduleId){
   strptime(schedule.endTime.c_str(), timeFormat, &schedule.endTimeStruct);
 
   uint16_t storeModelID = 1;
-  int getInformationResult = getScheduleInformation(schedule, storeModelID);
+  int getInformationResult = getScheduleInformation(schedule, storeModelID, totalFingers);
+  uploadedFingers = storeModelID - 1;
 
   if(getInformationResult == GET_SUCCESS){
     schedules.push_back(schedule);
@@ -1244,14 +1367,16 @@ void orderSchedules(){
   }
 }
 
-int getScheduleInformation(Schedule& schedule, uint16_t& storeModelID){
+int getScheduleInformation(Schedule& schedule, uint16_t& storeModelID, uint16_t& totalFingers){
   int page = 1;
-  String baseUrl = "http://" + String(SERVER_IP) + "/api/Student/get-students-by-classId?isModule=true&quantity=2&classID=" + String(schedule.classID);
+  String baseUrl = "http://" + String(SERVER_IP) + "/api/Student/get-students-by-classId-v2?isModule=true&quantity=2&classID=" + String(schedule.classID);
   //http://34.81.224.196/api/Student/get-students-by-classId?classID=2&startPage=1&endPage=1&quantity=2&isModule=true
 
-  if(session && appMode == PREPARE_ATTENDANCE_MODE){
+  if(session && (appMode == PREPARE_ATTENDANCE_MODE || appMode == PREPARE_SCHEDULES_MODE)){
     baseUrl = baseUrl + "&sessionId=" + String(session->sessionID);
   }
+
+  ECHOLN(baseUrl);
 
   while(true){
     String calledUrl = baseUrl + "&startPage=" + String(page) + "&endPage=" + String(page);
@@ -1264,6 +1389,7 @@ int getScheduleInformation(Schedule& schedule, uint16_t& storeModelID){
     }
 
     String payload = http.getString();
+    http.end();
     JSONVar students = JSON.parse(payload);
 
     if(JSON.typeof(students)!="array"){
@@ -1297,24 +1423,36 @@ int getScheduleInformation(Schedule& schedule, uint16_t& storeModelID){
           StoredFingerprint storedFingerprint;
           storedFingerprint.userID = userID;
           for(uint8_t fingerIndex = 0; fingerIndex < students[i]["fingerprintTemplateData"].length(); fingerIndex++){
+            totalFingers++;
             bool uploadFingerStatus = FINGERPSensor.uploadFingerprintTemplate((const char*)students[i]["fingerprintTemplateData"][fingerIndex], storeModelID);
-            if(!uploadFingerStatus) ECHOLN("Store finger failed for id: " + String(storeModelID));
-            if(uploadFingerStatus){
+            if(!uploadFingerStatus){
+              ECHOLN("");
+              ECHOLN("[getScheduleInformation] Store finger failed for id: " + String(storeModelID));
+              ECHOLN("[getScheduleInformation] Store finger failed for student: " + String(attendance.studentName.c_str()));
+              String classId = String(schedule.classID);
+              UploadFingerprintTemplateAgain(storeModelID, fingerIndex, storedFingerprint, attendance, classId);
+            }
+            else{
               attendance.storedFingerID.push_back(storeModelID);
               storedFingerprint.storedFingerID.push_back(storeModelID);
               ++storeModelID;
             }
             delay(1);
           }
-          storedFingerprints.push_back(storedFingerprint);
+          if(storedFingerprint.storedFingerID.size() > 0){
+            storedFingerprints.push_back(storedFingerprint);
+          }
         }
         schedule.attendances.push_back(attendance);
+      }
+
+      if(websocketClient.available()) {
+        websocketClient.poll();
       }
       delay(1);
     }
 
     page++;
-    http.end();
     delay(10);
   }
 
@@ -1480,3 +1618,42 @@ void onEventsCallback(WebsocketsEvent event, String data) {
         ECHOLN("[Main][WebsocketEvent] Got a Pong!");
     }
 }
+
+// Cơ chế dự phòng, upload lại 3 lần
+void UploadFingerprintTemplateAgain(uint16_t& storeModelID, uint8_t fingerIndex, StoredFingerprint& storedFingerprint, Attendance& attendance, String& classID){
+
+  String baseUrl = "http://" + String(SERVER_IP) + "/api/Student/get-students-by-classId-v2?isModule=true&classID=" + classID + "&userId=" + attendance.userID.c_str();
+  ECHOLN("[UploadFingerprintTemplateAgain] base url: " + baseUrl);
+  //http://34.81.224.196/api/Student/get-students-by-classId?classID=29&userId=b60b2e83-b6d3-4240-a422-08dc8640e68a&isModule=true
+  for(uint8_t i = 0; i < 3; i++){
+    ECHOLN(String() + "[UploadFingerprintTemplateAgain] for " + attendance.studentName.c_str() + " at " + String(i + 1));
+
+    http.setTimeout(2000);
+    http.begin(wifiClient, baseUrl);
+    int httpCode = http.GET();
+    if (httpCode == HTTP_CODE_OK){
+      String payload = http.getString();
+      JSONVar students = JSON.parse(payload);
+      if(JSON.typeof(students)=="array"){
+        if(JSON.typeof(students[0]["fingerprintTemplateData"])=="array" && students[0]["fingerprintTemplateData"].length() > 0){
+            bool uploadFingerStatus = FINGERPSensor.uploadFingerprintTemplate((const char*)students[0]["fingerprintTemplateData"][fingerIndex], storeModelID);
+            if(uploadFingerStatus){
+              attendance.storedFingerID.push_back(storeModelID);
+              storedFingerprint.storedFingerID.push_back(storeModelID);
+              ++storeModelID;
+              break;
+            }
+        }
+      }
+    }
+
+    http.end();
+    delay(10);
+  }
+
+  ECHOLN("");
+}
+
+
+
+

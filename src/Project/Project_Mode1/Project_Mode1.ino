@@ -165,11 +165,9 @@ bool connectWebSocket() {
 
   // run callback when messages are received
   websocketClient.onMessage([&](WebsocketsMessage message) {
-    ECHO("Got Message: ");
     //Serial.println(static_cast<std::underlying_type<MessageType>::type>(message.type()));
 
     if(message.isText()){
-      ECHOLN("Is text");
       // Get data from here
       const char* data = message.c_str();
       JSONVar message = JSON.parse(data);
@@ -235,6 +233,8 @@ bool connectWebSocket() {
             websocketClient.send(String("Cancel session ") + String(sessionId));
             delay(50);
             websocketClient.send(String("Cancel session ") + String(sessionId));
+
+            clearLCD();
           }
         }
       }
@@ -247,7 +247,6 @@ bool connectWebSocket() {
       }
     }
     else if(message.isBinary()){
-      ECHOLN("Is binary");
       const char* data = message.c_str();
       if(strcmp(data, "ping") == 0){
         ECHOLN("Receive custom ping, lets send pong");
@@ -461,7 +460,7 @@ void handleNormalMode(){
     while(c <= 5){
       printTextLCD("Reconnect: " + String(c), 1);
       unsigned long lcdTimeout = millis();
-      if(websocketClient.connect(WEBSOCKETS_SERVER_HOST, WEBSOCKETS_SERVER_PORT, "/ws/module?key=" + key)){
+      if(connectWebSocket()){
         while((lcdTimeout + 1500) > millis()){
           delay(800);
         }
@@ -505,7 +504,7 @@ void handleRegistrationMode(){
     return;
   }
 
-  if(!websocketClient.available(true)){
+  if(!websocketClient.available()){
     printTextLCD("Websocket falied", 0);
     printTextLCD("Reconnecting...", 1);
     delay(1000);
@@ -513,7 +512,7 @@ void handleRegistrationMode(){
     while(c <= 5){
       printTextLCD("Reconnect: " + String(c), 1);
       unsigned long lcdTimeout = millis();
-      if(websocketClient.connect(WEBSOCKETS_SERVER_HOST, WEBSOCKETS_SERVER_PORT, "/ws/module?key=" + key)){
+      if(connectWebSocket()){
         while((lcdTimeout + 1500) > millis()){
           delay(800);
         }
@@ -615,7 +614,7 @@ void handleRegistrationMode(){
 
   String fingerprintTemplate = FINGERPSensor.getFingerprintTemplate();
   if(fingerprintTemplate == ""){
-    printTextLCD("Created failed", 1);
+    printTextLCD("Created failed: finger null", 1);
     delay(2000);
     return;
   }
@@ -839,7 +838,7 @@ void setupNormalMode(){
     printTextLCD("NTP server connected", 1);
     lcdTimeout = millis();
 
-    bool checkWebSocket = websocketClient.connect(WEBSOCKETS_SERVER_HOST, WEBSOCKETS_SERVER_PORT, "/ws/module?key=" + key);
+    bool checkWebSocket = connectWebSocket();
     while((lcdTimeout + 1500) > millis()){
       delay(800);
     }
@@ -896,6 +895,8 @@ int uploadFingerprintTemplate(String fingerprintTemplate){
   fingerDataObject["FingerNumber"] = String(session->currentFingerNumber).c_str();
   String payload = JSON.stringify(fingerDataObject);
 
+  http.setTimeout(2000);
+  delay(1);
   http.begin(wifiClient, "http://" SERVER_IP "/api/Fingerprint");
   http.addHeader("Content-Type", "application/json");
   int httpCode = http.POST(payload);
