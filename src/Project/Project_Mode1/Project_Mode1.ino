@@ -45,6 +45,11 @@ class RegisteringSession{
     unsigned long endTimeStamp;
     bool normalTimeStampCase;
 
+    // Update mode here
+    uint16_t fingerID1;
+    uint16_t fingerID2;
+
+
     RegisteringSession(){}
 
     RegisteringSession(std::string StudentCode, std::string StudentID, int Mode ,int SessionID){
@@ -103,6 +108,12 @@ int year_;
 // Check update DateTime
 static unsigned long lastUpdate = 0;
 static const unsigned long intervalTime = 2073600000; //24days
+//================================
+
+
+// Check websocket
+static unsigned long lastUpdateWebsocket = 0;
+static const unsigned long intervalTimeCheckWebsocket = 10000; // 10 seconds
 //================================
 
 
@@ -196,6 +207,23 @@ bool connectWebSocket() {
           }
         }
       }
+      if(event == "UpdateFingerprint"){
+        if(session){
+          uint16_t sessionId = receiveData["SessionID"];
+          if(session->sessionID == sessionId){
+            session->studentCode = (const char*)receiveData["StudentCode"];
+            session->studentID = (const char*)receiveData["StudentID"];
+            session->fingerID1 = receiveData["FingerId1"];
+            session->fingerID2 = receiveData["FingerId2"];
+
+            appMode = UPDATE_MODE;
+
+            websocketClient.send(String("Update fingerprint ") + String(sessionId));
+            delay(50);
+            websocketClient.send(String("Update fingerprint ") + String(sessionId));
+          }
+        }
+      }
       else if(event == "ConnectModule"){
         if(session){
           websocketClient.send("Connected by other");
@@ -203,7 +231,7 @@ bool connectWebSocket() {
           websocketClient.send("Connected by other");
         }
         else{
-          digitalWrite(ACTIVE_BUZZER_PIN, HIGH);
+          //digitalWrite(ACTIVE_BUZZER_PIN, HIGH);
 
           uint16_t sessionId = receiveData["SessionID"];
           std::string user = (const char*)receiveData["User"];
@@ -219,8 +247,8 @@ bool connectWebSocket() {
           delay(50);
           websocketClient.send(sendMessage.c_str());
 
-          delay(500);
-          digitalWrite(ACTIVE_BUZZER_PIN, LOW);
+          //delay(500);
+          //digitalWrite(ACTIVE_BUZZER_PIN, LOW);
         }
       }
       else if(event == "CancelSession"){
@@ -243,6 +271,11 @@ bool connectWebSocket() {
           websocketClient.send("Check current session " + String(session->sessionID));
           delay(50);
           websocketClient.send("Check current session " + String(session->sessionID));
+        }
+        else{
+          websocketClient.send("Check current session 0");
+          delay(50);
+          websocketClient.send("Check current session 0");
         }
       }
     }
@@ -297,7 +330,7 @@ void setup() {
   unsigned long lcdTimeout = 0;
   bool check = false;
 
-  connectBuzzer();
+  //connectBuzzer();
   delay(10);
   connectButton();
   delay(10);
@@ -397,6 +430,9 @@ void loop() {
   else if(appMode == CONNECT_MODULE){
     handleConnectModuleMode();
   }
+  else if(appMode == UPDATE_MODE){
+    handleUpdateMode();
+  }
   checkModeReset();
 }
 
@@ -469,7 +505,13 @@ void handleNormalMode(){
       }
       c++;
     }
+    delay(1000);
+    clearLCD();
     return;
+  }
+
+  if(checkWebsocket()){
+    websocketClient.available(true);
   }
 
   if(checkUpdateDateTime()){
@@ -494,6 +536,11 @@ void handleNormalMode(){
 }
 
 void handleRegistrationMode(){
+  if(session == nullptr){
+    appMode = NORMAL_MODE;
+    return;
+  }
+
   if(!WifiService.checkWifi()){
     printTextLCD("Connection failed", 0);
     printTextLCD("Connect new wifi", 1);
@@ -664,6 +711,189 @@ void handleRegistrationMode(){
   clearLCD();
 }
 
+void handleUpdateMode(){
+  if(session == nullptr){
+    appMode = NORMAL_MODE;
+    return;
+  }
+
+  if(!WifiService.checkWifi()){
+    printTextLCD("Connection failed", 0);
+    printTextLCD("Connect new wifi", 1);
+    while(appMode != SERVER_MODE){
+      checkModeReset();
+      delay(50);
+    }
+    return;
+  }
+
+  if(!websocketClient.available()){
+    printTextLCD("Websocket falied", 0);
+    printTextLCD("Reconnecting...", 1);
+    delay(1000);
+    uint8_t c = 1;
+    while(c <= 5){
+      printTextLCD("Reconnect: " + String(c), 1);
+      unsigned long lcdTimeout = millis();
+      if(connectWebSocket()){
+        while((lcdTimeout + 1500) > millis()){
+          delay(800);
+        }
+        printTextLCD("Connect websocket successfully", 1);
+        break;
+      }
+      c++;
+    }
+    return;
+  }
+
+  bool updateFinger1 = false;
+  bool updateFinger2 = false;
+  uint16_t updatedFingerprintId = 0;
+  if(session->fingerID1 != 0){
+    updatedFingerprintId = session->fingerID1;
+    updateFinger1 = true;
+  }
+  else if(session->fingerID2 != 0){
+    updatedFingerprintId = session->fingerID2;
+    updateFinger2 = true;
+  }
+  else{
+    // No fingerprint update required
+    websocketClient.send(String("Fingerprint update completed ") + String(session->sessionID));
+    delay(50);
+    websocketClient.send(String("Fingerprint update completed ") + String(session->sessionID));
+
+    session = nullptr;
+    appMode = NORMAL_MODE;
+    return;
+  }
+
+  printTextLCD(session->studentCode.c_str(), 0);
+
+  // Scan
+  printTextLCD("Place finger", 1);
+  int p = -1;
+  while (p != FINGERPRINT_OK) {
+    p = FINGERPSensor.scanFinger();
+    checkModeReset();
+    if(websocketClient.available()) {
+      websocketClient.poll();
+    }
+    if(appMode != UPDATE_MODE){
+      break;
+    }
+    delay(1);
+  }
+  if(appMode != UPDATE_MODE){
+    return;
+  }
+
+  // Get image 1
+  p = FINGERPSensor.getImage1();
+  if(p != FINGERPRINT_OK){
+    printTextLCD("Try again", 1);
+    delay(2000);
+    return;
+  }
+
+  // Remove finger
+  printTextLCD("Remove finger", 1);
+  p = 0;
+  while(p != FINGERPRINT_NOFINGER){
+    p = FINGERPSensor.scanFinger();
+    checkModeReset();
+    if(websocketClient.available()) {
+      websocketClient.poll();
+    }
+    if(appMode != UPDATE_MODE){
+      break;
+    }
+    delay(1);
+  }
+  if(appMode != UPDATE_MODE){
+    return;
+  }
+
+  // Place finger again
+  printTextLCD("Place same finger again", 1);
+  p = -1;
+  while (p != FINGERPRINT_OK){
+    p = FINGERPSensor.scanFinger();
+    checkModeReset();
+    if(websocketClient.available()) {
+      websocketClient.poll();
+    }
+    if(appMode != UPDATE_MODE){
+      break;
+    }
+    delay(1);
+  }
+  if(appMode != UPDATE_MODE){
+    return;
+  }
+
+  // Get image 2
+  p = FINGERPSensor.getImage2();
+  if(p != FINGERPRINT_OK){
+    printTextLCD("Try again", 1);
+    delay(2000);
+    return;
+  }
+
+  // Create model
+  p = FINGERPSensor.createModel();
+  if(p == FINGERPRINT_OK){
+    printTextLCD("Creating...", 1);
+  }
+  else if(p == FINGERPRINT_ENROLLMISMATCH){
+    printTextLCD("Finger does not match", 1);
+    delay(2000);
+    return;
+  }
+  else{
+    printTextLCD("Error: try again", 1);
+    delay(2000);
+    return;
+  }
+
+  String fingerprintTemplate = FINGERPSensor.getFingerprintTemplate();
+  if(fingerprintTemplate == ""){
+    printTextLCD("Created failed: finger null", 1);
+    delay(2000);
+    return;
+  }
+
+  String error = "";
+  int uploadResult = uploadUpdatedFingerprintTemplate(fingerprintTemplate, updatedFingerprintId, error);
+  switch(uploadResult){
+    case CONNECTION_LOST:
+      printTextLCD("Connection lost", 1);
+      break;
+    case UPLOAD_FAIL:
+      printTextLCD("Upload failed - " + error, 1);
+      break;
+    case UPLOAD_SUCCESS:
+      printTextLCD("Upload successfully", 1);
+      if(updateFinger1){
+        session->fingerID1 = 0;
+      }
+      if(updateFinger2){
+        session->fingerID2 = 0;
+      }
+      updatedFingerprintId = 0;
+      break;
+    case INVALID_DATA:
+      printTextLCD("Invalid data", 1);
+      break;
+    default:
+      printTextLCD("Unkonw error", 1);
+      break;
+  }
+  delay(2000);
+  clearLCD();
+}
+
 //==========================================================================================
 bool getCurrentDateTime(){
   DateTime now;
@@ -738,6 +968,21 @@ bool checkUpdateDateTime() {
   }
   else if(now > (lastUpdate + intervalTime)){
     lastUpdate = now;
+    return true;
+  }
+  else{
+    return false;
+  }
+}
+
+bool checkWebsocket(){
+  unsigned long now = millis();
+  if(now < lastUpdateWebsocket){
+    lastUpdateWebsocket = 0;
+    return false;
+  }
+  if(now > (lastUpdateWebsocket + intervalTimeCheckWebsocket)){
+    lastUpdateWebsocket = now;
     return true;
   }
   else{
@@ -907,6 +1152,43 @@ int uploadFingerprintTemplate(String fingerprintTemplate){
   ECHO("[Main][UploadTemplate] Upload status: "); ECHOLN(httpCode);
 
   if (httpCode != HTTP_CODE_OK){
+    return UPLOAD_FAIL;
+  }
+
+  return UPLOAD_SUCCESS;
+}
+
+int uploadUpdatedFingerprintTemplate(String fingerprintTemplate, uint16_t fingerprintId, String& error){
+  if(!WifiService.checkWifi()) {
+    return CONNECTION_LOST;
+  }
+
+  if(fingerprintTemplate == "" || session->studentID == "" || session->sessionID <= 0 || fingerprintId <= 0){
+    return INVALID_DATA;
+  }
+
+  ECHOLN("[Main][uploadUpdatedFingerprintTemplate] Uploading fingerprint template...");
+  JSONVar fingerDataObject;
+  fingerDataObject["FingerprintTemplate"] = fingerprintTemplate.c_str();
+  fingerDataObject["StudentID"] = session->studentID.c_str();
+  fingerDataObject["SessionID"] = String(session->sessionID).c_str(); 
+  fingerDataObject["FingerTemplateId"] = String(fingerprintId).c_str();
+  String payload = JSON.stringify(fingerDataObject);
+
+  http.setTimeout(2000);
+  delay(1);
+  http.begin(wifiClient, "http://" SERVER_IP "/api/Fingerprint/update");
+  http.addHeader("Content-Type", "application/json");
+  int httpCode = http.POST(payload);
+  String payloadData = http.getString();
+  http.end();
+
+  ECHO("[Main][UploadTemplate] Receive paylod data: "); ECHOLN(payloadData);
+  ECHO("[Main][UploadTemplate] Upload status: "); ECHOLN(httpCode);
+
+  if (httpCode != HTTP_CODE_OK){
+    JSONVar result = JSON.parse(payloadData);
+    error = (const char*)result["title"];
     return UPLOAD_FAIL;
   }
 

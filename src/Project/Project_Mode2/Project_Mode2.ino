@@ -80,6 +80,7 @@ class Schedule {
     struct tm startTimeStruct;
     struct tm endTimeStruct;
     uint8_t order;
+    bool isStop;
 
     std::vector<Attendance> attendances;
 };
@@ -164,6 +165,13 @@ static unsigned long lastUpdate = 0;
 static const unsigned long intervalTime = 2073600000; //24days
 //================================
 
+
+// Check websocket
+static unsigned long lastUpdateWebsocket = 0;
+static const unsigned long intervalTimeCheckWebsocket = 10000; // 10 seconds
+//================================
+
+
 // Http Client
 WiFiClient wifiClient;
 HTTPClient http;
@@ -200,7 +208,7 @@ Schedule* onGoingSchedule = nullptr;
 uint16_t attendanceSessionDuration = 0;
 bool printScheduleInformation = true;
 static unsigned long lastUpdateAttendanceStatus = 0;
-static const unsigned long updateAttendanceStatusIntervalTime = 120000; //2 minutes
+static const unsigned long updateAttendanceStatusIntervalTime = 30000; //0.5 minutes
 //================================
 //=======================================================================================
 
@@ -245,7 +253,7 @@ bool connectWebSocket() {
           websocketClient.send("Connected by other");
         }
         else{
-          digitalWrite(ACTIVE_BUZZER_PIN, HIGH);
+          //digitalWrite(ACTIVE_BUZZER_PIN, HIGH);
         
           uint16_t sessionId = receiveData["SessionID"];
           std::string user = (const char*)receiveData["User"];
@@ -260,8 +268,8 @@ bool connectWebSocket() {
           delay(50);
           websocketClient.send(sendMessage.c_str());
 
-          delay(1000);
-          digitalWrite(ACTIVE_BUZZER_PIN, LOW);
+          //delay(1000);
+          //digitalWrite(ACTIVE_BUZZER_PIN, LOW);
         }
       }
       else if(event == "PrepareAttendance"){
@@ -282,12 +290,25 @@ bool connectWebSocket() {
         uint16_t scheduleID = receiveData["ScheduleID"];
         if(onGoingSchedule){
           if(onGoingSchedule->scheduleID == scheduleID){
+            onGoingSchedule->isStop = true;
             // Stop attendance
             endAttendanceSession();
 
             websocketClient.send(String("Stop attendance ") + String(scheduleID));
             delay(50);
             websocketClient.send(String("Stop attendance ") + String(scheduleID));
+          }
+        }
+      }
+      else if(event == "StartAttendance"){
+        uint16_t scheduleID = receiveData["ScheduleID"];
+        if(onGoingSchedule){
+          if(onGoingSchedule->scheduleID == scheduleID){
+            onGoingSchedule->isStop = false;
+
+            websocketClient.send(String("Start attendance ") + String(scheduleID));
+            delay(50);
+            websocketClient.send(String("Start attendance ") + String(scheduleID));
           }
         }
       }
@@ -310,6 +331,31 @@ bool connectWebSocket() {
             delay(50);
             websocketClient.send(String("Prepare schedules ") + String(sessionId));
           }
+        }
+      }
+      else if(event == "CheckUploadedSchedule"){
+        uint16_t scheduleId = receiveData["ScheduleId"];
+        if(schedules.size() > 0){
+          auto have_schedule = [scheduleId](const auto& obj){
+            return (obj.scheduleID == scheduleId);
+          };
+          auto it_have_schedule = std::find_if(schedules.begin(), schedules.end(), have_schedule);
+          if(it_have_schedule != schedules.end()){
+            // Uploaded schedule exist
+            websocketClient.send(String("Check uploaded schedule ") + String(scheduleId) + " available");
+            delay(50);
+            websocketClient.send(String("Check uploaded schedule ") + String(scheduleId) + " available");
+          }
+          else{
+            websocketClient.send(String("Check uploaded schedule ") + String(scheduleId) + " unavailable");
+            delay(50);
+            websocketClient.send(String("Check uploaded schedule ") + String(scheduleId) + " unavailable");
+          }
+        }
+        else{
+          websocketClient.send(String("Check uploaded schedule ") + String(scheduleId) + " unavailable");
+          delay(50);
+          websocketClient.send(String("Check uploaded schedule ") + String(scheduleId) + " unavailable");
         }
       }
     }
@@ -373,7 +419,7 @@ void setup() {
   unsigned long lcdTimeout = 0;
   bool check = false;
 
-  connectBuzzer();
+  //connectBuzzer();
   delay(10);
   connectButton();
   delay(50);
@@ -556,8 +602,8 @@ void handleSetUpMode(){
 }
 
 void handleNormalMode(){
-  if(WifiService.checkWifi()){
-    if(!websocketClient.available()){
+  if(WifiService.checkWifi() && checkWebsocket()){
+    if(!websocketClient.available(true)){
       printTextLCD("Websocket falied", 0);
       printTextLCD("Reconnecting...", 1);
       delay(1000);
@@ -582,6 +628,10 @@ void handleNormalMode(){
 
   if(checkUpdateDateTime()){
     setupDateTime();
+  }
+
+  if(unUploadedAttendedList.size() > 0 && checkUpdateAttendanceStatus()){
+    updateAttendanceStatusAgain();
   }
 
   //print current datetime
@@ -715,6 +765,12 @@ void handleAttendanceMode(){
       }
     }
 
+    if(WifiService.checkWifi() && checkWebsocket()){
+      if(websocketClient.available(true)){
+        connectWebSocket();
+      }
+    }
+
     if(websocketClient.available()) {
       websocketClient.poll();
     }
@@ -741,13 +797,13 @@ void handleAttendancePreparationMode(){
     // then notify to server that the job is finished
     if(result){
       printTextLCD("Loaded successfully", 1);
-      websocketClient.send(String("Schedule preparation completed successfully ") + String(session->sessionID));
+      websocketClient.send(String("Schedule preparation completed successfully;;;") + String(session->sessionID) + ";;;" + String(uploadedFingers));
       delay(50);
       //websocketClient.send(String("Schedule preparation completed successfully ") + String(session->sessionID));
     }
     else{
       printTextLCD("Loaded failed", 1);
-      websocketClient.send(String("Schedule preparation completed failed ") + String(session->sessionID));
+      websocketClient.send(String("Schedule preparation completed failed;;;") + String(session->sessionID));
       delay(50);
       //websocketClient.send(String("Schedule preparation completed failed ") + String(session->sessionID));
     }
@@ -786,12 +842,6 @@ void handlePrepareSchedulesMode(){
     uint16_t uploadedFingers = 0;
     int loadingStatus = loadingData(total, loaded, totalFingers, uploadedFingers);
 
-    ECHOLN("[handlePrepareSchedulesMode] uploaded " + String(uploadedFingers) + "/" + String(totalFingers));
-    ECHOLN("[handlePrepareSchedulesMode] uploaded " + String(uploadedFingers) + "/" + String(totalFingers));
-    ECHOLN("[handlePrepareSchedulesMode] uploaded " + String(uploadedFingers) + "/" + String(totalFingers));
-    ECHOLN("[handlePrepareSchedulesMode] uploaded " + String(uploadedFingers) + "/" + String(totalFingers));
-    ECHOLN("[handlePrepareSchedulesMode] uploaded " + String(uploadedFingers) + "/" + String(totalFingers));
-
     switch(loadingStatus){
       case CONNECTION_LOST:
         printTextLCD("Connection lost", 1);
@@ -805,7 +855,7 @@ void handlePrepareSchedulesMode(){
         break;
       case GET_SUCCESS:
         printTextLCD("Loaded " + String(loaded) +  "/" + String(total) + " schedule", 1);
-        websocketClient.send(String("Schedule preparation completed successfully ") + String(session->sessionID));
+        websocketClient.send(String("Schedule preparation completed successfully;;;") + String(session->sessionID) + ";;;" + String(uploadedFingers));
         delay(50);
         break;
       case UNDEFINED_ERROR:
@@ -962,6 +1012,21 @@ bool checkUpdateDateTime() {
   }
   else if(now > (lastUpdate + intervalTime)){
     lastUpdate = now;
+    return true;
+  }
+  else{
+    return false;
+  }
+}
+
+bool checkWebsocket(){
+  unsigned long now = millis();
+  if(now < lastUpdateWebsocket){
+    lastUpdateWebsocket = 0;
+    return false;
+  }
+  if(now > (lastUpdateWebsocket + intervalTimeCheckWebsocket)){
+    lastUpdateWebsocket = now;
     return true;
   }
   else{
@@ -1264,6 +1329,7 @@ int getSchedules(uint8_t& totalSchedules) {
       schedule.roomName = (const char*)scheduleDataArray[i]["roomName"];
       schedule.startTime = (const char*)scheduleDataArray[i]["startTime"];
       schedule.endTime = (const char*)scheduleDataArray[i]["endTime"];
+      schedule.isStop = false;
     
       // Create struct for date, start time and end time
       strptime(schedule.date.c_str(), dateFormat, &schedule.dateStruct);
@@ -1318,6 +1384,7 @@ bool getScheduleById(uint16_t scheduleId, uint16_t& totalFingers, uint16_t& uplo
   //schedule.roomName = (const char*)scheduleData[i]["roomName"];
   schedule.startTime = (const char*)scheduleData["slot"]["startTime"];
   schedule.endTime = (const char*)scheduleData["slot"]["endtime"];
+  schedule.isStop = false;
     
   // Create struct for date, start time and end time
   strptime(schedule.date.c_str(), dateFormat, &schedule.dateStruct);
@@ -1465,11 +1532,13 @@ bool getOnGoingSchedule(){
   }
 
   for(Schedule& schedule : schedules){
-    if(checkOnDate(schedule.dateStruct)){
-      if(checkOnTime(schedule.startTimeStruct, schedule.endTimeStruct)){
-        onGoingSchedule = &schedule;
-        appMode = ATTENDANCE_MODE;
-        return true;
+    if(!schedule.isStop){
+      if(checkOnDate(schedule.dateStruct)){
+        if(checkOnTime(schedule.startTimeStruct, schedule.endTimeStruct)){
+          onGoingSchedule = &schedule;
+          appMode = ATTENDANCE_MODE;
+          return true;
+        }
       }
     }
   }
@@ -1590,10 +1659,7 @@ bool checkUpdateAttendanceStatus() {
     lastUpdateAttendanceStatus = 0;
     return false;
   }
-  if(lastUpdateAttendanceStatus >= 2*updateAttendanceStatusIntervalTime){
-    return false;
-  }
-  else if(now > (lastUpdateAttendanceStatus + updateAttendanceStatusIntervalTime)){
+  if(now > (lastUpdateAttendanceStatus + updateAttendanceStatusIntervalTime)){
     lastUpdateAttendanceStatus = now;
     return true;
   }

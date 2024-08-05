@@ -17,5 +17,6 @@
 #define SERVER_MODE 2
 #define REGISTRATION_MODE 3
 #define CONNECT_MODULE 4
+#define UPDATE_MODE 5
 
 #endif
