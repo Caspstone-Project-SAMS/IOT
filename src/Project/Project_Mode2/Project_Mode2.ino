@@ -253,7 +253,7 @@ bool connectWebSocket() {
           websocketClient.send("Connected by other");
         }
         else{
-          //digitalWrite(ACTIVE_BUZZER_PIN, HIGH);
+          digitalWrite(ACTIVE_BUZZER_PIN, HIGH);
         
           uint16_t sessionId = receiveData["SessionID"];
           std::string user = (const char*)receiveData["User"];
@@ -268,8 +268,8 @@ bool connectWebSocket() {
           delay(50);
           websocketClient.send(sendMessage.c_str());
 
-          //delay(1000);
-          //digitalWrite(ACTIVE_BUZZER_PIN, LOW);
+          delay(500);
+          digitalWrite(ACTIVE_BUZZER_PIN, LOW);
         }
       }
       else if(event == "PrepareAttendance"){
@@ -419,7 +419,7 @@ void setup() {
   unsigned long lcdTimeout = 0;
   bool check = false;
 
-  //connectBuzzer();
+  connectBuzzer();
   delay(10);
   connectButton();
   delay(50);

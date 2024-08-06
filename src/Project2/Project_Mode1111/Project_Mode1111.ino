@@ -8,6 +8,10 @@
 #include <NTPClient.h>               
 #include <TimeLib.h>
 
+#include <ESP8266WiFi.h>
+#include <ESP8266WiFiMulti.h>
+#include <WiFiClientSecureBearSSL.h>
+
 #include <ESP8266WebServer.h>
 #include "EEPRomService.h"
 #include "AppDebug.h"
@@ -17,6 +21,7 @@
 #include "LCDService.h"
 #include "FingerprintSensorService.h"
 #include "RTCService.h"
+#include "certs.h"
 
 
 using namespace websockets;
@@ -76,7 +81,7 @@ class RegisteringSession{
 #define SERVER_IP "34.81.224.196"
 #define WEBSOCKETS_SERVER_HOST "34.81.224.196"
 #define WEBSOCKETS_SERVER_PORT 80
-#define WEBSOCKETS_PROTOCOL "ws"
+#define WEBSOCKETS_PROTOCOL "wss"
 
 // For upload fingerprint template state
 #define CONNECTION_LOST 1
@@ -116,9 +121,10 @@ static unsigned long lastUpdateWebsocket = 0;
 static const unsigned long intervalTimeCheckWebsocket = 10000; // 10 seconds
 //================================
 
-
+ESP8266WiFiMulti WiFiMultii;
 // Http Client
-WiFiClient wifiClient;
+std::unique_ptr<BearSSL::WiFiClientSecure> client(new BearSSL::WiFiClientSecure);
+//WiFiClient wifiClient;
 HTTPClient http;
 //================================
 
@@ -301,7 +307,8 @@ bool connectWebSocket() {
     }
   });
 
-  return websocketClient.connect(WEBSOCKETS_SERVER_HOST, WEBSOCKETS_SERVER_PORT, "/ws/module?key=" + key);
+  //return websocketClient.connect(WEBSOCKETS_SERVER_HOST, WEBSOCKETS_SERVER_PORT, "/ws/module?key=" + key);
+  return websocketClient.connect("wss://34.81.224.196/ws/module?key=" + key);
 }
 
 void resetData(){
@@ -373,7 +380,7 @@ void setup() {
 
   // Connect to wifi
   //Serial.print("Address of WiFi object (1): "); Serial.println(reinterpret_cast<uintptr_t>(&WiFi), HEX);
-  WifiService.setupWiFi(WiFi);
+  WifiService.setupWiFi(WiFi, WiFiMultii);
   int wifiStatus = WifiService.connect();
   while((lcdTimeout + 2000) > millis()){
     delay(800);
@@ -1147,8 +1154,9 @@ int uploadFingerprintTemplate(String fingerprintTemplate){
   String payload = JSON.stringify(fingerDataObject);
 
   http.setTimeout(2000);
+  client->setInsecure();
   delay(1);
-  http.begin(wifiClient, "http://" SERVER_IP "/api/Fingerprint");
+  http.begin(*client, SERVER_IP, 443, "/api/Fingerprint", true);
   http.addHeader("Content-Type", "application/json");
   int httpCode = http.POST(payload);
   String payloadData = http.getString();
@@ -1169,6 +1177,12 @@ int uploadUpdatedFingerprintTemplate(String fingerprintTemplate, uint16_t finger
     return CONNECTION_LOST;
   }
 
+  http.begin(wifiClient, "http://" SERVER_IP "/api/Hello");
+  int httpCode = http.POST(payload);
+  String payloadData = http.getString();
+  ECHOLN(payloadData + String(httpCode));
+  http.end();
+
   if(fingerprintTemplate == "" || session->studentID == "" || session->sessionID <= 0 || fingerprintId <= 0){
     return INVALID_DATA;
   }
@@ -1182,8 +1196,9 @@ int uploadUpdatedFingerprintTemplate(String fingerprintTemplate, uint16_t finger
   String payload = JSON.stringify(fingerDataObject);
 
   http.setTimeout(2000);
+  client->setInsecure();
   delay(1);
-  http.begin(wifiClient, "http://" SERVER_IP "/api/Fingerprint/update");
+  http.begin(*client, SERVER_IP, 443, "/api/Fingerprint/update", true);
   http.addHeader("Content-Type", "application/json");
   int httpCode = http.POST(payload);
   String payloadData = http.getString();
