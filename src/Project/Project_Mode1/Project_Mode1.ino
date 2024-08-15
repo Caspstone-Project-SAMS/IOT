@@ -41,7 +41,7 @@ class RegisteringSession{
     uint8_t mode;
     int8_t currentFingerNumber;
     uint16_t sessionID;
-    uint8_t durationInMin;
+    uint8_t durationSeconds;
     unsigned long endTimeStamp;
     bool normalTimeStampCase;
 
@@ -59,11 +59,11 @@ class RegisteringSession{
       sessionID = SessionID;
     }
 
-    RegisteringSession(int SessionId, std::string User, uint8_t DurationInMin, unsigned long StartTimeStamp){
+    RegisteringSession(int SessionId, std::string User, uint8_t DurationSeconds, unsigned long StartTimeStamp){
       sessionID = SessionId;
       user = User;
-      durationInMin = DurationInMin;
-      endTimeStamp = StartTimeStamp + (durationInMin * 60 * 1000);
+      durationSeconds = DurationSeconds;
+      endTimeStamp = StartTimeStamp + (DurationSeconds * 1000);
       if(endTimeStamp > StartTimeStamp) normalTimeStampCase = true;
       else normalTimeStampCase = false;
     }
@@ -114,6 +114,8 @@ static const unsigned long intervalTime = 2073600000; //24days
 // Check websocket
 static unsigned long lastUpdateWebsocket = 0;
 static const unsigned long intervalTimeCheckWebsocket = 10000; // 10 seconds
+static unsigned long lastReceiveCustomPing = 0;
+static const unsigned long intervalTimeCheckLastPing = 12000; // 12 seconds
 //================================
 
 
@@ -153,10 +155,30 @@ const unsigned char ACTIVE_BUZZER_PIN = 12;
 
 
 
+// 3 optional wifi
+String wifi1 = "FPTU_Library";
+String pass1 = "12345678";
+
+// String wifi2 = "oplus_co_apcnzr";
+// String pass2 = "vhhd3382";
+
+// String wifi3 = "Nhim";
+// String pass3 = "1357924680";
+
+
+
 String key = "I3ZbMRjf0lfag1uSJzuDKtz8J";
 
 bool printConnectingMode = false;
 unsigned long limitRange = 4294907290;
+
+//String checkInternet = "https://www.google.com/";
+
+
+//============================ Configuration =============================
+bool connectionSound = true;
+uint16_t connectionSoundDurationMs = 400;
+uint8_t connectionLifeTimeSeconds = 20;
 
 
 
@@ -180,7 +202,7 @@ bool connectWebSocket() {
 
     if(message.isText()){
       // Get data from here
-      ECHOLN("Get message at websocket");
+      //ECHOLN("Get message at websocket");
       const char* data = message.c_str();
       JSONVar message = JSON.parse(data);
       String event = message["Event"];
@@ -237,14 +259,10 @@ bool connectWebSocket() {
           websocketClient.send("Connected by other");
         }
         else{
-          digitalWrite(ACTIVE_BUZZER_PIN, HIGH);
-
           uint16_t sessionId = receiveData["SessionID"];
           std::string user = (const char*)receiveData["User"];
-          uint8_t durationInMin = receiveData["DurationInMin"];
           unsigned long now = millis();
-          //unsigned long endTimestamp = now + (durationInMin * 60 * 1000);
-          session = new RegisteringSession(sessionId, user, durationInMin, now);
+          session = new RegisteringSession(sessionId, user, connectionLifeTimeSeconds, now);
           appMode = CONNECT_MODULE;
           printConnectingMode = true;
           String sendMessage = "Connected " + String(sessionId);
@@ -253,8 +271,11 @@ bool connectWebSocket() {
           delay(50);
           websocketClient.send(sendMessage.c_str());
 
-          delay(500);
-          digitalWrite(ACTIVE_BUZZER_PIN, LOW);
+          if(connectionSound){
+            digitalWrite(ACTIVE_BUZZER_PIN, HIGH);
+            delay(connectionSoundDurationMs);
+            digitalWrite(ACTIVE_BUZZER_PIN, LOW);
+          }
         }
       }
       else if(event == "CancelSession"){
@@ -284,11 +305,21 @@ bool connectWebSocket() {
           websocketClient.send("Check current session 0");
         }
       }
+      else if(event == "ApplyConfigurations"){
+        connectionSound = receiveData["ConnectionSound"];
+        connectionSoundDurationMs = receiveData["ConnectionSoundDurationMs"];
+        connectionLifeTimeSeconds = receiveData["ConnectionLifeTimeSeconds"];
+
+        websocketClient.send("Apply configurations successfully");
+        delay(50);
+        websocketClient.send("Apply configurations successfully");
+      }
     }
     else if(message.isBinary()){
       const char* data = message.c_str();
       if(strcmp(data, "ping") == 0){
         ECHOLN("Receive custom ping, lets send pong");
+        //lastReceiveCustomPing = millis();
         String sendMessage = "pong";
 
         websocketClient.sendBinary(sendMessage.c_str(), sendMessage.length());
@@ -485,6 +516,10 @@ void handleSetUpMode(){
 
 void handleNormalMode(){
   if(!WifiService.checkWifi()){
+    if(reconnectWifi3Times()){
+      return;
+    }
+
     printTextLCD("Connection failed", 0);
     printTextLCD("Connect new wifi", 1);
     while(appMode != SERVER_MODE){
@@ -503,10 +538,10 @@ void handleNormalMode(){
       printTextLCD("Reconnect: " + String(c), 1);
       unsigned long lcdTimeout = millis();
       if(connectWebSocket()){
-        while((lcdTimeout + 1500) > millis()){
-          delay(800);
+        while((lcdTimeout + 500) > millis()){
+          delay(500);
         }
-        printTextLCD("Connect websocket successfully", 1);
+        printTextLCD("Connect successfully", 1);
         break;
       }
       c++;
@@ -514,10 +549,33 @@ void handleNormalMode(){
     delay(1000);
     clearLCD();
     return;
+
+    // If reconnecting 5 times and still failed, may need to change wifi
   }
 
   if(checkWebsocket()){
-    websocketClient.available(true);
+    // reconnect websocket
+    if(!websocketClient.available(true)){
+      printTextLCD("Websocket falied", 0);
+      printTextLCD("Reconnecting...", 1);
+      delay(1000);
+      uint8_t c = 1;
+      while(c <= 5){
+        printTextLCD("Reconnect: " + String(c), 1);
+        unsigned long lcdTimeout = millis();
+        if(connectWebSocket()){
+          while((lcdTimeout + 500) > millis()){
+            delay(500);
+          }
+          printTextLCD("Connect successfully", 1);
+          break;
+        }
+        c++;
+      }
+      delay(1000);
+      clearLCD();
+      return;
+    }
   }
 
   if(checkUpdateDateTime()){
@@ -532,7 +590,7 @@ void handleNormalMode(){
   else{
     printTextLCD("Failed to get", 0);
     printTextLCD("current datetime", 1);
-    delay(2000);
+    delay(1000);
   }  
 
   // let the websockets client check for incoming messages
@@ -1200,3 +1258,70 @@ int uploadUpdatedFingerprintTemplate(String fingerprintTemplate, uint16_t finger
 
   return UPLOAD_SUCCESS;
 }
+
+bool reconnectWifi3Times(){
+  printTextLCD("Reconnect wifi", 0);
+  printTextLCD("Wifi: default", 1);
+
+  if(WifiService.connect() == CONNECT_OK){
+    if(checkInternet()){
+      return true;
+    }
+  }
+
+  if(wifi1 != ""){
+    printTextLCD("Wifi: Option 1", 1);
+    if(WifiService.connect(wifi1, pass1) == CONNECT_OK){
+      if(checkInternet()){
+        return true;
+      }
+    }
+  }
+
+  // if(wifi2 != ""){
+  //   printTextLCD("Wifi: Option 2", 1);
+  //   if(WifiService.connect(wifi2, pass2) == CONNECT_OK){
+  //     if(checkInternet()){
+  //       return true;
+  //     }
+  //   }
+  // }
+
+  // if(wifi3 != ""){
+  //   printTextLCD("Wifi: Option 3", 1);
+  //   if(WifiService.connect(wifi3, pass3) == CONNECT_OK){
+  //     if(checkInternet()){
+  //       return true;
+  //     }
+  //   }
+  // }
+
+  return false;
+}
+
+bool checkInternet(){
+  http.setTimeout(2000);
+  http.begin(wifiClient, "https://www.google.com/");
+  int httpCode = http.GET();
+  http.end();
+
+  if (httpCode == HTTP_CODE_OK){
+    return true;
+  }
+  return false;
+}
+
+// bool checkReceiveCustomPing(){
+//   unsigned long now = millis();
+//   if(now < lastReceiveCustomPing){
+//     lastReceiveCustomPing = 0;
+//     return false;
+//   }
+//   if(now > (lastReceiveCustomPing + intervalTimeCheckLastPing)){
+//     lastReceiveCustomPing = now;
+//     return true;
+//   }
+//   else{
+//     return false;
+//   }
+// }

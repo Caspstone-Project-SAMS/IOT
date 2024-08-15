@@ -204,17 +204,15 @@ String FingerprintSensorClass::getFingerprintTemplate(){
     uint8_t stat=bytesReceived[(m*(128+11))+6];
     if( stat!= FINGERPRINT_DATAPACKET && stat!= FINGERPRINT_ENDDATAPACKET){
       ECHOLN("Bad fingerprint_packet");
-      while(1){
-        delay(1);
-      }
+      return "";
     }
     memcpy(fingerTemplate + (m*128), bytesReceived + (m*(128+11))+9, 128); 
   }
 
-  for(int i = 0; i < 512; i++)
-  {
-    ECHO(fingerTemplate[i]); ECHO(" ");
-  }
+  // for(int i = 0; i < 512; i++)
+  // {
+  //   ECHO(fingerTemplate[i]); ECHO(" ");
+  // }
 
   // Fingerprint template is presented in Hexa format
   String fingerprintTemplate = "";

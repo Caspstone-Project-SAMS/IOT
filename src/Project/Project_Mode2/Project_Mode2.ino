@@ -104,7 +104,7 @@ class PreparingAttendanceSession{
     uint16_t scheduleID; 
     uint16_t sessionID;
     std::string user;
-    uint8_t durationInMin;
+    uint8_t durationSeconds;
     unsigned long endTimeStamp;
     bool normalTimeStampCase;
 
@@ -116,11 +116,11 @@ class PreparingAttendanceSession{
       user = User;
     }
 
-    PreparingAttendanceSession(uint16_t SessionId, std::string User, uint8_t DurationInMin, unsigned long StartTimeStamp){
+    PreparingAttendanceSession(uint16_t SessionId, std::string User, uint8_t DurationSeconds, unsigned long StartTimeStamp){
       sessionID = SessionId;
       user = User;
-      durationInMin = DurationInMin;
-      endTimeStamp = StartTimeStamp + (durationInMin * 60 * 1000);
+      durationSeconds = DurationSeconds;
+      endTimeStamp = StartTimeStamp + (DurationSeconds * 1000);
       if(endTimeStamp > StartTimeStamp) normalTimeStampCase = true;
       else normalTimeStampCase = false;
     }
@@ -205,19 +205,32 @@ std::vector<Attended> uploadedAttendedList;
 std::vector<Attended> unUploadedAttendedList;
 std::vector<StoredFingerprint> storedFingerprints;
 Schedule* onGoingSchedule = nullptr;
-uint16_t attendanceSessionDuration = 0;
 bool printScheduleInformation = true;
 static unsigned long lastUpdateAttendanceStatus = 0;
-static const unsigned long updateAttendanceStatusIntervalTime = 30000; //0.5 minutes
+static const unsigned long updateAttendanceStatusIntervalTime = 15000; //15 seconds
 //================================
 //=======================================================================================
 
 
+// String key = "gzqzg4cbIp0dUAEHsVSvRDtgg";
 String key = "xSJ6nDkyRcjYn81hPy5H9fRZg";
 
 bool printConnectingMode = false;
 
 unsigned long limitRange = 4294907290;
+
+std::vector<char*> errorCalledGetScheduleInformationUrl;
+
+
+//============================ Configuration =============================
+bool connectionSound = true;
+uint16_t connectionSoundDurationMs = 400;
+uint8_t connectionLifeTimeSeconds = 20;
+
+bool attendanceSound = false;
+uint16_t attendanceSoundDurationMs = 400;
+
+uint8_t attendanceDurationMinutes = 0;
 
 
 //=====================================Set up code=======================================
@@ -231,16 +244,10 @@ void connectBuzzer(){
 
 bool connectWebSocket() {
 
-  // run callback when events are occuring
   websocketClient.onEvent(onEventsCallback);
 
-  // run callback when messages are received
   websocketClient.onMessage([&](WebsocketsMessage message) {
-    //Serial.print("Got Message: ");
-    //Serial.println(static_cast<std::underlying_type<MessageType>::type>(message.type()));
-
     if(message.isText()){
-      // Get data from here
       const char* data = message.c_str();
       JSONVar message = JSON.parse(data);
       String event = message["Event"];
@@ -253,13 +260,10 @@ bool connectWebSocket() {
           websocketClient.send("Connected by other");
         }
         else{
-          digitalWrite(ACTIVE_BUZZER_PIN, HIGH);
-        
           uint16_t sessionId = receiveData["SessionID"];
           std::string user = (const char*)receiveData["User"];
-          uint8_t durationInMin = receiveData["DurationInMin"];
           unsigned long now = millis();
-          session = new PreparingAttendanceSession(sessionId, user, durationInMin, now);
+          session = new PreparingAttendanceSession(sessionId, user, connectionLifeTimeSeconds, now);
           appMode = CONNECT_MODULE;
           printConnectingMode = true;
           String sendMessage = "Connected " + String(sessionId);
@@ -268,8 +272,11 @@ bool connectWebSocket() {
           delay(50);
           websocketClient.send(sendMessage.c_str());
 
-          delay(500);
-          digitalWrite(ACTIVE_BUZZER_PIN, LOW);
+          if(connectionSound){
+            digitalWrite(ACTIVE_BUZZER_PIN, HIGH);
+            delay(connectionSoundDurationMs);
+            digitalWrite(ACTIVE_BUZZER_PIN, LOW);
+          }
         }
       }
       else if(event == "PrepareAttendance"){
@@ -283,6 +290,21 @@ bool connectWebSocket() {
             websocketClient.send(String("Prepare attendance ") + String(sessionId));
             delay(50);
             websocketClient.send(String("Prepare attendance ") + String(sessionId));
+          }
+        }
+      }
+      else if(event == "CancelSession"){
+        uint16_t sessionId = receiveData["SessionID"];
+        if(session){
+          if(session->sessionID == sessionId){
+            session = nullptr;
+            appMode = NORMAL_MODE;
+
+            websocketClient.send(String("Cancel session ") + String(sessionId));
+            delay(50);
+            websocketClient.send(String("Cancel session ") + String(sessionId));
+
+            clearLCD();
           }
         }
       }
@@ -357,6 +379,44 @@ bool connectWebSocket() {
           delay(50);
           websocketClient.send(String("Check uploaded schedule ") + String(scheduleId) + " unavailable");
         }
+      }
+      else if(event == "SyncingAttendanceData"){
+        uint16_t scheduleId = receiveData["ScheduleId"];
+
+        // Lest search schedule
+        auto schedule_existed = [scheduleId](const auto& obj){
+          return (obj.scheduleID == scheduleId);
+        };
+        auto it_schedule_existed = std::find_if(schedules.begin(), schedules.end(), schedule_existed);
+        if(it_schedule_existed != schedules.end()){
+          if(syncingAttendanceData()){
+            websocketClient.send(String("Syncing attendance data successfully ") + String(scheduleId));
+            delay(50);
+            websocketClient.send(String("Syncing attendance data successfully ") + String(scheduleId));
+          }
+          else{
+            websocketClient.send(String("Syncing attendance data failed ") + String(scheduleId));
+            delay(50);
+            websocketClient.send(String("Syncing attendance data failed ") + String(scheduleId));
+          }
+        }
+        else{
+          websocketClient.send(String("Syncing attendance data failed ") + String(scheduleId));
+          delay(50);
+          websocketClient.send(String("Syncing attendance data failed ") + String(scheduleId));
+        }
+      }
+      else if(event == "ApplyConfigurations"){
+        connectionSound = receiveData["ConnectionSound"];
+        connectionSoundDurationMs = receiveData["ConnectionSoundDurationMs"];
+        attendanceSound = receiveData["AttendanceSound"];
+        attendanceSoundDurationMs = receiveData["AttendanceSoundDurationMs"];
+        connectionLifeTimeSeconds = receiveData["ConnectionLifeTimeSeconds"];
+        attendanceDurationMinutes = receiveData["AttendanceDurationMinutes"];
+
+        websocketClient.send("Apply configurations successfully");
+        delay(50);
+        websocketClient.send("Apply configurations successfully");
       }
     }
     else if(message.isBinary()){
@@ -630,6 +690,10 @@ void handleNormalMode(){
     setupDateTime();
   }
 
+  if(websocketClient.available()) {
+    websocketClient.poll();
+  }
+
   if(unUploadedAttendedList.size() > 0 && checkUpdateAttendanceStatus()){
     updateAttendanceStatusAgain();
   }
@@ -724,6 +788,12 @@ void handleAttendanceMode(){
             };
             auto attendance_it = std::find_if(onGoingSchedule->attendances.begin(), onGoingSchedule->attendances.end(), finger_check);
             if (attendance_it != onGoingSchedule->attendances.end()) {
+              // Lets make sound
+              if(attendanceSound){
+                digitalWrite(ACTIVE_BUZZER_PIN, HIGH);
+                delay(attendanceSoundDurationMs);
+                digitalWrite(ACTIVE_BUZZER_PIN, LOW);
+              }
               //====================Marking attendance===========================
               //==========Checking whether if attended or not====================
               uint16_t scheduleID = attendance_it->scheduleID;
@@ -766,7 +836,7 @@ void handleAttendanceMode(){
     }
 
     if(WifiService.checkWifi() && checkWebsocket()){
-      if(websocketClient.available(true)){
+      if(!websocketClient.available(true)){
         connectWebSocket();
       }
     }
@@ -1240,6 +1310,10 @@ int loadingData(uint8_t& total, uint8_t& loaded, uint16_t& totalFingers, uint16_
     return CONNECTION_LOST;
   }
 
+  if(websocketClient.available()) {
+    websocketClient.poll();
+  }
+
   int getSchedulesStatus = getSchedules(total);
   switch(getSchedulesStatus){
     case GET_FAIL:
@@ -1267,15 +1341,19 @@ int loadingData(uint8_t& total, uint8_t& loaded, uint16_t& totalFingers, uint16_
   ECHOLN("Stored models: " + String(storeModelID - 1));
   uploadedFingers = storeModelID - 1;
 
-  for(Schedule& schedule : schedules){
-      ECHOLN(String("Schedule of ") + schedule.classCode.c_str() + " has " + String(schedule.attendances.size()) + " attendances");
-      for(Attendance& attendance : schedule.attendances){
-        for(uint16_t fingerId : attendance.storedFingerID){
-          ECHO(String(fingerId));
-        }
-        ECHOLN();
-      }
-    }
+  // for(Schedule& schedule : schedules){
+  //     ECHOLN(String("Schedule of ") + schedule.classCode.c_str() + " has " + String(schedule.attendances.size()) + " attendances");
+  //     for(Attendance& attendance : schedule.attendances){
+  //       for(uint16_t fingerId : attendance.storedFingerID){
+  //         ECHO(String(fingerId));
+  //       }
+  //       ECHOLN();
+  //     }
+  //   }
+
+  if(websocketClient.available()) {
+    websocketClient.poll();
+  }
 
   // Make a notification about the status of receiving schedules
   // Call notification API here
@@ -1303,8 +1381,6 @@ int getSchedules(uint8_t& totalSchedules) {
 
   String payload = http.getString();
 
-  ECHOLN(payload);
-
   JSONVar scheduleDataArray = JSON.parse(payload);
   // Check whether if data is in correct format
   if(JSON.typeof(scheduleDataArray)!="array"){
@@ -1315,6 +1391,9 @@ int getSchedules(uint8_t& totalSchedules) {
   if(websocketClient.available()) {
     websocketClient.poll();
   }
+
+  http.end();
+  payload.clear();
 
   // Load schedules information
   for(int i = 0; i < scheduleDataArray.length(); i++) {
@@ -1342,13 +1421,13 @@ int getSchedules(uint8_t& totalSchedules) {
     }
   }
 
-  http.end();
   return GET_SUCCESS;
 }
 
 bool getScheduleById(uint16_t scheduleId, uint16_t& totalFingers, uint16_t& uploadedFingers){
-  String url = "http://" + String(SERVER_IP) + "/api/Schedule/" + String(scheduleId);
+  String url = "http://" + String(SERVER_IP) + "/api/Schedule/module/" + String(scheduleId);
   //http://34.81.224.196/api/Schedule/81
+  //http://34.81.224.196/api/Schedule/module/870
 
   http.begin(wifiClient, url);
 
@@ -1361,6 +1440,14 @@ bool getScheduleById(uint16_t scheduleId, uint16_t& totalFingers, uint16_t& uplo
 
   String payload = http.getString();
   JSONVar resultData = JSON.parse(payload);
+
+  if(websocketClient.available()) {
+    websocketClient.poll();
+  }
+
+  http.end();
+  payload.clear();
+
   // Check whether if data is in correct format
   if(JSON.typeof(resultData)!="object"){
     ECHOLN("[getScheduleById] Invalid data format: " + payload);
@@ -1391,6 +1478,10 @@ bool getScheduleById(uint16_t scheduleId, uint16_t& totalFingers, uint16_t& uplo
   strptime(schedule.startTime.c_str(), timeFormat, &schedule.startTimeStruct);
   strptime(schedule.endTime.c_str(), timeFormat, &schedule.endTimeStruct);
 
+  if(websocketClient.available()) {
+    websocketClient.poll();
+  }
+
   uint16_t storeModelID = 1;
   int getInformationResult = getScheduleInformation(schedule, storeModelID, totalFingers);
   uploadedFingers = storeModelID - 1;
@@ -1419,6 +1510,10 @@ bool getScheduleById(uint16_t scheduleId, uint16_t& totalFingers, uint16_t& uplo
     return true;
   }
 
+  if(websocketClient.available()) {
+    websocketClient.poll();
+  }
+
   return false;
 }
 
@@ -1445,24 +1540,93 @@ int getScheduleInformation(Schedule& schedule, uint16_t& storeModelID, uint16_t&
 
   ECHOLN(baseUrl);
 
+  String calledUrl = "";
+  int httpCode = 0;
+  String payload = "";
+
   while(true){
-    String calledUrl = baseUrl + "&startPage=" + String(page) + "&endPage=" + String(page);
+    ECHOLN("[getScheduleInformation] Get page: " + String(page));
+    calledUrl = "";
+    httpCode = 0;
+
+    if(websocketClient.available()) {
+      websocketClient.poll();
+    }
+
+    calledUrl = baseUrl + "&startPage=" + String(page) + "&endPage=" + String(page);
     http.begin(wifiClient, calledUrl);
 
-    int httpCode = http.GET();
+    httpCode = http.GET();
     if (httpCode != HTTP_CODE_OK){
       ECHOLN("[getScheduleInformation] HTTP is not OK: " + String(httpCode));
-      return GET_FAIL;
+      //return GET_FAIL;
+      // Just ignore it
+      page++;
+      delay(100);
+      continue;
     }
 
-    String payload = http.getString();
-    http.end();
+    payload = http.getString();
     JSONVar students = JSON.parse(payload);
 
-    if(JSON.typeof(students)!="array"){
-      ECHOLN("[getScheduleInformation] Invalid data format: " + payload);
-      return INVALID_DATA;
-    }
+    http.end();
+
+    // if(JSON.typeof(students)!="array"){
+    //   ECHOLN("[getScheduleInformation] Invalid data format: " + payload);
+    //   ECHOLN("[getScheduleInformation] Called url: " + calledUrl);
+    //   ECHOLN();
+    //   //return INVALID_DATA;
+    //   // Just ignore it
+
+    //   // Lets call again here, maybe 3 times
+    //   bool checkOk = false;
+    //   for(int i = 0; i < 3; i++){
+    //     http.begin(wifiClient, calledUrl);
+    //     httpCode = http.GET();
+    //     if (httpCode == HTTP_CODE_OK){
+    //       payload = http.getString();
+    //       students = JSON.parse(payload);
+    //       if(JSON.typeof(students)=="array"){
+    //         checkOk = true;
+    //         http.end();
+    //         payload.clear();
+    //         delay(100);
+    //         break;
+    //       }
+    //     }
+    //     http.end();
+    //     payload.clear();
+    //     delay(300);
+    //   }
+
+    //   if(!checkOk){
+    //     ECHOLN("[getScheduleInformation] Again NOT OK");
+    //     page++;
+    //     delay(100);
+    //     continue;
+    //   }
+
+    //   // http.begin(wifiClient, calledUrl);
+    //   // httpCode = http.GET();
+    //   // if (httpCode != HTTP_CODE_OK){
+    //   //   page++;
+    //   //   delay(100);
+    //   //   continue;
+    //   // }
+
+    //   // payload = http.getString();
+    //   // students = JSON.parse(payload);
+    //   // http.end();
+      
+    //   // if(JSON.typeof(students)!="array"){
+    //   //   page++;
+    //   //   payload.clear();
+    //   //   delay(100);
+    //   //   continue;
+    //   // }
+
+    //   ECHOLN("[getScheduleInformation] Again OK");
+    // }
 
     if(students.length() == 0){
       break;
@@ -1493,9 +1657,6 @@ int getScheduleInformation(Schedule& schedule, uint16_t& storeModelID, uint16_t&
             totalFingers++;
             bool uploadFingerStatus = FINGERPSensor.uploadFingerprintTemplate((const char*)students[i]["fingerprintTemplateData"][fingerIndex], storeModelID);
             if(!uploadFingerStatus){
-              ECHOLN("");
-              ECHOLN("[getScheduleInformation] Store finger failed for id: " + String(storeModelID));
-              ECHOLN("[getScheduleInformation] Store finger failed for student: " + String(attendance.studentName.c_str()));
               String classId = String(schedule.classID);
               UploadFingerprintTemplateAgain(storeModelID, fingerIndex, storedFingerprint, attendance, classId);
             }
@@ -1513,15 +1674,25 @@ int getScheduleInformation(Schedule& schedule, uint16_t& storeModelID, uint16_t&
         schedule.attendances.push_back(attendance);
       }
 
+      delay(1);
       if(websocketClient.available()) {
         websocketClient.poll();
       }
-      delay(1);
     }
 
     page++;
-    delay(10);
+
+    if(websocketClient.available()) {
+      websocketClient.poll();
+    }
+
+    payload.clear();
+    delay(100);
   }
+
+  calledUrl = "";
+
+  // Thêm cơ chế chạy lại những thằng lỗi
 
   return GET_SUCCESS;
 }
@@ -1578,9 +1749,9 @@ bool checkOnTime(const struct tm& startTime, const struct tm& endTime){
 }
 
 uint16_t getScheduleEndTimeInMinute(const struct tm& startTime, const struct tm& endTime){
-  if(attendanceSessionDuration >= 5){
+  if(attendanceDurationMinutes > 0){
     uint16_t start = startTime.tm_hour * 60 + startTime.tm_min;
-    return start + attendanceSessionDuration;
+    return start + attendanceDurationMinutes;
   }
   uint16_t end = endTime.tm_hour * 60 + endTime.tm_min;
   return end;
@@ -1650,6 +1821,7 @@ void updateAttendanceStatusAgain(){
     unUploadedAttendedList.clear(); // Makes it empty
   }
 
+  payload.clear();
   http.end();
 }
 
@@ -1689,7 +1861,7 @@ void onEventsCallback(WebsocketsEvent event, String data) {
 void UploadFingerprintTemplateAgain(uint16_t& storeModelID, uint8_t fingerIndex, StoredFingerprint& storedFingerprint, Attendance& attendance, String& classID){
 
   String baseUrl = "http://" + String(SERVER_IP) + "/api/Student/get-students-by-classId-v2?isModule=true&classID=" + classID + "&userId=" + attendance.userID.c_str();
-  ECHOLN("[UploadFingerprintTemplateAgain] base url: " + baseUrl);
+  //ECHOLN("[UploadFingerprintTemplateAgain] base url: " + baseUrl);
   //http://34.81.224.196/api/Student/get-students-by-classId?classID=29&userId=b60b2e83-b6d3-4240-a422-08dc8640e68a&isModule=true
   for(uint8_t i = 0; i < 3; i++){
     ECHOLN(String() + "[UploadFingerprintTemplateAgain] for " + attendance.studentName.c_str() + " at " + String(i + 1));
@@ -1697,29 +1869,69 @@ void UploadFingerprintTemplateAgain(uint16_t& storeModelID, uint8_t fingerIndex,
     http.setTimeout(2000);
     http.begin(wifiClient, baseUrl);
     int httpCode = http.GET();
+    String payload = http.getString();
+    http.end();
+
     if (httpCode == HTTP_CODE_OK){
-      String payload = http.getString();
       JSONVar students = JSON.parse(payload);
       if(JSON.typeof(students)=="array"){
         if(JSON.typeof(students[0]["fingerprintTemplateData"])=="array" && students[0]["fingerprintTemplateData"].length() > 0){
-            bool uploadFingerStatus = FINGERPSensor.uploadFingerprintTemplate((const char*)students[0]["fingerprintTemplateData"][fingerIndex], storeModelID);
-            if(uploadFingerStatus){
-              attendance.storedFingerID.push_back(storeModelID);
-              storedFingerprint.storedFingerID.push_back(storeModelID);
-              ++storeModelID;
-              break;
-            }
+          bool uploadFingerStatus = FINGERPSensor.uploadFingerprintTemplate((const char*)students[0]["fingerprintTemplateData"][fingerIndex], storeModelID);
+          if(uploadFingerStatus){
+            attendance.storedFingerID.push_back(storeModelID);
+            storedFingerprint.storedFingerID.push_back(storeModelID);
+            ++storeModelID;
+            break;
+          }
         }
       }
     }
 
-    http.end();
-    delay(10);
+    payload.clear();
+    delay(50);
   }
 
-  ECHOLN("");
+  if(websocketClient.available()) {
+    websocketClient.poll();
+  }
 }
 
+bool syncingAttendanceData(){
+  if(!WifiService.checkWifi()) {
+    return false;
+  }
 
+  //http://35.221.168.89/api/Attendance/update-list-student-status
+  String url = "http://" + String(SERVER_IP) + "/api/Attendance/update-list-student-status";
+
+  char buf[] = "YYYY-MM-DDThh:mm:ss";
+
+  // Create a payload string
+  JSONVar attendanceArray;
+  uint8_t index = 0;
+  for(Attended& item : unUploadedAttendedList){
+    JSONVar attendance;
+    attendance["ScheduleID"] = item.scheduleID;
+    attendance["StudentID"] = item.userID.c_str();
+    attendance["AttendanceStatus"] = "1";
+    attendance["AttendanceTime"] = item.attendanceTime.toString(buf);
+    attendanceArray[index++] = attendance;
+  }
+  String payload = JSON.stringify(attendanceArray);
+
+  http.begin(wifiClient, url);
+  http.addHeader("Content-Type", "application/json");
+  int httpCode = http.PUT(payload);
+
+  if(httpCode != HTTP_CODE_OK){
+    return false;
+  }
+
+  uploadedAttendedList.insert(uploadedAttendedList.end(), unUploadedAttendedList.begin(), unUploadedAttendedList.end());
+  unUploadedAttendedList.clear(); // Makes it empty
+  payload.clear();
+  http.end();
+  return true;
+}
 
 

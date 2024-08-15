@@ -56,7 +56,7 @@ int WifiServiceClass::connect(const String &ssid, const String &pass){
       ECHOLN(WiFii->localIP());
       return CONNECT_OK;
     }
-    delay(500);
+    delay(300);
     ECHO(".");
     c++;
   }
@@ -82,7 +82,7 @@ int WifiServiceClass::connectNewWifi(const String &ssid, const String &pass){
 
   ECHOLN("Waiting for Wifi to connect");
   int c = 0;
-  while(c < 40){
+  while(c < 30){
     if(WiFii->status() == WL_CONNECTED){
       ECHOLN("Wifi connected!");
       ECHO("Local IP: ");
@@ -91,7 +91,7 @@ int WifiServiceClass::connectNewWifi(const String &ssid, const String &pass){
       setupAPWifi();
       return CONNECT_OK;
     }
-    delay(500);
+    delay(300);
     ECHO(".");
     c++;
   }

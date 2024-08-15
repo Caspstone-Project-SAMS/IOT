@@ -1,0 +1,83 @@
+// ECHOLN("[getScheduleInformation] Run again error called url");
+  // for (int i = 0; i < errorCalledGetScheduleInformationUrl.size(); i++){
+
+  //   ECHOLN(String("[getScheduleInformation] called url: ") + errorCalledGetScheduleInformationUrl[i]);
+
+  //   http.begin(wifiClient, errorCalledGetScheduleInformationUrl[i]);
+
+  //   httpCode = http.GET();
+  //   if (httpCode != HTTP_CODE_OK){
+  //     ECHOLN("[getScheduleInformation] HTTP is not OK: " + String(httpCode));
+  //     //return GET_FAIL;
+  //     // Just ignore it
+  //     continue;
+  //   }
+
+  //   payload = http.getString();
+  //   JSONVar students = JSON.parse(payload);
+
+  //   http.end();
+
+  //   if(JSON.typeof(students)!="array"){
+  //     ECHOLN("[getScheduleInformation] Invalid data format: " + payload);
+  //     ECHOLN("[getScheduleInformation] Called url: " + calledUrl);
+  //     //return INVALID_DATA;
+  //     // Just ignore it
+  //     continue;
+  //   }
+
+  //   for(int i = 0; i < students.length(); i++) {
+  //     // If student have finger informations, lets store it
+  //     if(JSON.typeof(students[i]["fingerprintTemplateData"])=="array" && students[i]["fingerprintTemplateData"].length() > 0){
+  //       Attendance attendance;
+  //       attendance.scheduleID = schedule.scheduleID;
+  //       attendance.userID = (const char*)students[i]["userID"];
+  //       attendance.studentName = (const char*)students[i]["studentName"];
+  //       attendance.studentCode = (const char*)students[i]["studentCode"];
+
+  //       // if there is a student information already added, so the fingerprint template also
+  //       std::string userID = attendance.userID;
+  //       auto finger_already = [userID](const auto& obj){
+  //         return (obj.userID == userID && obj.storedFingerID.size() > 0);
+  //       };
+  //       auto it_finger_already = std::find_if(storedFingerprints.begin(), storedFingerprints.end(), finger_already);
+  //       if(it_finger_already != storedFingerprints.end()){
+  //         attendance.storedFingerID = it_finger_already->storedFingerID;
+  //       }
+  //       else{
+  //         StoredFingerprint storedFingerprint;
+  //         storedFingerprint.userID = userID;
+  //         for(uint8_t fingerIndex = 0; fingerIndex < students[i]["fingerprintTemplateData"].length(); fingerIndex++){
+  //           totalFingers++;
+  //           bool uploadFingerStatus = FINGERPSensor.uploadFingerprintTemplate((const char*)students[i]["fingerprintTemplateData"][fingerIndex], storeModelID);
+  //           if(!uploadFingerStatus){
+  //             ECHOLN("");
+  //             //ECHOLN("[getScheduleInformation] Store finger failed for id: " + String(storeModelID));
+  //             //ECHOLN("[getScheduleInformation] Store finger failed for student: " + String(attendance.studentName.c_str()));
+  //             String classId = String(schedule.classID);
+  //             UploadFingerprintTemplateAgain(storeModelID, fingerIndex, storedFingerprint, attendance, classId);
+  //           }
+  //           else{
+  //             attendance.storedFingerID.push_back(storeModelID);
+  //             storedFingerprint.storedFingerID.push_back(storeModelID);
+  //             ++storeModelID;
+  //           }
+  //           delay(1);
+  //         }
+  //         if(storedFingerprint.storedFingerID.size() > 0){
+  //           storedFingerprints.push_back(storedFingerprint);
+  //         }
+  //       }
+  //       schedule.attendances.push_back(attendance);
+  //     }
+
+  //     delay(1);
+  //     if(websocketClient.available()) {
+  //       websocketClient.poll();
+  //     }
+  //   }
+
+  //   payload.clear();
+  //   delay(50);
+  // }
+  // errorCalledGetScheduleInformationUrl.clear();
