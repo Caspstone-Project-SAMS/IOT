@@ -383,13 +383,15 @@ bool connectWebSocket() {
       else if(event == "SyncingAttendanceData"){
         uint16_t scheduleId = receiveData["ScheduleId"];
 
+        ECHOLN("Syncing data: " + String(scheduleId));
+
         // Lest search schedule
         auto schedule_existed = [scheduleId](const auto& obj){
           return (obj.scheduleID == scheduleId);
         };
         auto it_schedule_existed = std::find_if(schedules.begin(), schedules.end(), schedule_existed);
         if(it_schedule_existed != schedules.end()){
-          if(syncingAttendanceData()){
+          if(syncingAttendanceData(scheduleId)){
             websocketClient.send(String("Syncing attendance data successfully ") + String(scheduleId));
             delay(50);
             websocketClient.send(String("Syncing attendance data successfully ") + String(scheduleId));
@@ -558,39 +560,7 @@ void setup() {
   resetData();  
   setupDateTime();
 
-  // if(WifiService.checkWifi()){
-  //   while((lcdTimeout + 2000) > millis()){
-  //     delay(800);
-  //   }
-  //   printTextLCD("Loading datas", 1);
-  //   lcdTimeout = millis();
-
-  //   uint8_t total = 0;
-  //   uint8_t loaded = 0;
-  //   int loadingStatus = loadingData(total, loaded);
-  //   while((lcdTimeout + 2000) > millis()){
-  //     delay(800);
-  //   }
-  //   switch(loadingStatus){
-  //     case CONNECTION_LOST:
-  //       printTextLCD("Connection lost", 1);
-  //       break;
-  //     case GET_FAIL:
-  //       printTextLCD("Loaded failed", 1);
-  //       break;
-  //     case GET_SUCCESS:
-  //       printTextLCD("Loaded " + String(loaded) +  "/" + String(total) + " schedule", 1);
-  //       break;
-  //     case UNDEFINED_ERROR:
-  //       printTextLCD("Undefined error", 1);
-  //       break;
-  //     default:
-  //       printTextLCD("Undefined error", 1);
-  //       break;
-  //   }
-  // }
-
-  delay(2000);
+  delay(50);
   printTextLCD("Setup done!!!", 1);
   delay(2000);
   
@@ -722,7 +692,6 @@ void handleNormalMode(){
 
 void handleAttendanceMode(){
   unsigned long lcdTimeout = 0;
-  uint16_t endTime = getScheduleEndTimeInMinute(onGoingSchedule->startTimeStruct, onGoingSchedule->endTimeStruct);
   while(1){
     if(attendanceModeToSetupMode()){
       while(1){
@@ -734,6 +703,7 @@ void handleAttendanceMode(){
       }
     }
 
+    uint16_t endTime = getScheduleEndTimeInMinute(onGoingSchedule->startTimeStruct, onGoingSchedule->endTimeStruct);
     uint16_t currentTime = getCurrentTimeInMinute();
 
     if(onGoingSchedule == nullptr){
@@ -1732,8 +1702,18 @@ bool checkOnDate(const struct tm& date){
 
 bool checkOnTime(const struct tm& startTime, const struct tm& endTime){
   uint32_t start = (startTime.tm_hour * 60 + startTime.tm_min) * 60 + startTime.tm_sec;
-  uint32_t end = (endTime.tm_hour * 60 + endTime.tm_min) * 60 + endTime.tm_sec;
   uint32_t now = (hour_ * 60 + minute_) * 60 + second_;
+  uint32_t end = 0;
+  if(attendanceDurationMinutes > 0){
+    end = (startTime.tm_hour * 60 + startTime.tm_min) * 60 + startTime.tm_sec + attendanceDurationMinutes * 60;
+    uint32_t checkEnd = (endTime.tm_hour * 60 + endTime.tm_min) * 60 + endTime.tm_sec;
+    if(end > checkEnd){
+      end = checkEnd;
+    }
+  }
+  else{
+    end = (endTime.tm_hour * 60 + endTime.tm_min) * 60 + endTime.tm_sec;
+  }
   
   if(end < start){
     if(now > start || now < end){
@@ -1749,12 +1729,16 @@ bool checkOnTime(const struct tm& startTime, const struct tm& endTime){
 }
 
 uint16_t getScheduleEndTimeInMinute(const struct tm& startTime, const struct tm& endTime){
+  uint16_t checkEnd = endTime.tm_hour * 60 + endTime.tm_min;
   if(attendanceDurationMinutes > 0){
     uint16_t start = startTime.tm_hour * 60 + startTime.tm_min;
-    return start + attendanceDurationMinutes;
+    uint16_t end = start + attendanceDurationMinutes;
+    if(end > checkEnd){
+      return checkEnd;
+    }
+    return end;
   }
-  uint16_t end = endTime.tm_hour * 60 + endTime.tm_min;
-  return end;
+  return checkEnd;
 }
 
 bool updateAttendanceStatus(const uint16_t& scheduleID, const std::string& userID, const DateTime& attendedTime){
@@ -1896,7 +1880,7 @@ void UploadFingerprintTemplateAgain(uint16_t& storeModelID, uint8_t fingerIndex,
   }
 }
 
-bool syncingAttendanceData(){
+bool syncingAttendanceData(uint16_t scheduleID){
   if(!WifiService.checkWifi()) {
     return false;
   }
@@ -1917,6 +1901,21 @@ bool syncingAttendanceData(){
     attendance["AttendanceTime"] = item.attendanceTime.toString(buf);
     attendanceArray[index++] = attendance;
   }
+  for(Attended& item : uploadedAttendedList){
+    if(item.scheduleID == scheduleID){
+      JSONVar attendance;
+      attendance["ScheduleID"] = item.scheduleID;
+      attendance["StudentID"] = item.userID.c_str();
+      attendance["AttendanceStatus"] = "1";
+      attendance["AttendanceTime"] = item.attendanceTime.toString(buf);
+      attendanceArray[index++] = attendance;
+    }
+  }
+
+  if(attendanceArray.size() == 0){
+    return true;
+  }
+
   String payload = JSON.stringify(attendanceArray);
 
   http.begin(wifiClient, url);
@@ -1933,5 +1932,3 @@ bool syncingAttendanceData(){
   http.end();
   return true;
 }
-
-
