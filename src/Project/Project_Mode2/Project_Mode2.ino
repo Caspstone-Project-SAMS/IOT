@@ -315,23 +315,29 @@ bool connectWebSocket() {
             onGoingSchedule->isStop = true;
             // Stop attendance
             endAttendanceSession();
-
-            websocketClient.send(String("Stop attendance ") + String(scheduleID));
-            delay(50);
-            websocketClient.send(String("Stop attendance ") + String(scheduleID));
           }
         }
+        websocketClient.send(String("Stop attendance ") + String(scheduleID));
+        delay(50);
+        websocketClient.send(String("Stop attendance ") + String(scheduleID));
       }
       else if(event == "StartAttendance"){
         uint16_t scheduleID = receiveData["ScheduleID"];
-        if(onGoingSchedule){
-          if(onGoingSchedule->scheduleID == scheduleID){
-            onGoingSchedule->isStop = false;
+        auto schedule_check = [scheduleID](const auto& obj){
+          return obj.scheduleID == scheduleID; 
+        };
+        auto it_schedule_check = std::find_if(schedules.begin(), schedules.end(), schedule_check);
+        if(it_schedule_check != schedules.end()){
+          it_schedule_check->isStop = false;
 
-            websocketClient.send(String("Start attendance ") + String(scheduleID));
-            delay(50);
-            websocketClient.send(String("Start attendance ") + String(scheduleID));
-          }
+          websocketClient.send(String("Start attendance ") + String(scheduleID) + String(" successfully"));
+          delay(50);
+          websocketClient.send(String("Start attendance ") + String(scheduleID) + String(" successfully"));
+        }
+        else{
+          websocketClient.send(String("Start attendance ") + String(scheduleID) + String(" failed"));
+          delay(50);
+          websocketClient.send(String("Start attendance ") + String(scheduleID) + String(" failed"));
         }
       }
       else if(event == "CheckCurrentSession"){
@@ -383,9 +389,7 @@ bool connectWebSocket() {
       else if(event == "SyncingAttendanceData"){
         uint16_t scheduleId = receiveData["ScheduleId"];
 
-        ECHOLN("Syncing data: " + String(scheduleId));
-
-        // Lest search schedule
+        // Let's search schedule
         auto schedule_existed = [scheduleId](const auto& obj){
           return (obj.scheduleID == scheduleId);
         };
@@ -502,8 +506,8 @@ void setup() {
 
   // Connect to R308 fingerprint sensor
   check = FINGERPSensor.connectFingerprintSensor();
-  while((lcdTimeout + 2000) > millis()){
-    delay(800);
+  while((lcdTimeout + 1000) > millis()){
+    delay(200);
   }
   if(check){
     printTextLCD("Fingerprint Sensor connected", 1);
@@ -519,8 +523,8 @@ void setup() {
   // Connect to wifi
   WifiService.setupWiFi(WiFi);
   int wifiStatus = WifiService.connect();
-  while((lcdTimeout + 2000) > millis()){
-    delay(800);
+  while((lcdTimeout + 1000) > millis()){
+    delay(500);
   }
   if(wifiStatus == CONNECT_OK){
     printTextLCD("Wifi connected", 1);
@@ -537,16 +541,17 @@ void setup() {
   if(WifiService.checkWifi()){
     // Connect to NTP Server
     timeClient.begin();
-    while((lcdTimeout + 2000) > millis()){
-      delay(800);
+    setupDateTime();
+    while((lcdTimeout + 1000) > millis()){
+      delay(200);
     }
     printTextLCD("NTP server connected", 1);
     lcdTimeout = millis();
 
     // Connect to websockets
     check = connectWebSocket();
-    while((lcdTimeout + 2000) > millis()){
-      delay(800);
+    while((lcdTimeout + 1000) > millis()){
+      delay(200);
     }
     if(check){
       printTextLCD("Websockets connected", 1);
@@ -558,11 +563,10 @@ void setup() {
   }
 
   resetData();  
-  setupDateTime();
 
   delay(50);
   printTextLCD("Setup done!!!", 1);
-  delay(2000);
+  delay(1000);
   
   clearLCD();
 }
@@ -676,7 +680,7 @@ void handleNormalMode(){
   else{
     printTextLCD("Failed to get", 0);
     printTextLCD("current datetime", 1);
-    delay(2000);
+    delay(1000);
   }
 
   if(getOnGoingSchedule()){
@@ -703,18 +707,7 @@ void handleAttendanceMode(){
       }
     }
 
-    uint16_t endTime = getScheduleEndTimeInMinute(onGoingSchedule->startTimeStruct, onGoingSchedule->endTimeStruct);
-    uint16_t currentTime = getCurrentTimeInMinute();
-
-    if(onGoingSchedule == nullptr){
-      ECHOLN("Slot end with nullptr");
-      endAttendanceSession();
-      clearLCD();
-      delay(1);
-      break;
-    }
-    if(endTime < currentTime){
-      ECHOLN("Slot end");
+    if(onGoingSchedule == nullptr || onGoingSchedule->isStop){
       endAttendanceSession();
       clearLCD();
       delay(1);
@@ -727,9 +720,20 @@ void handleAttendanceMode(){
       break;
     }
 
+    uint16_t endTime = getScheduleEndTimeInMinute(onGoingSchedule->startTimeStruct, onGoingSchedule->endTimeStruct);
+    uint16_t currentTime = getCurrentTimeInMinute();
+    
+    if(endTime < currentTime){
+      ECHOLN("Slot end");
+      endAttendanceSession();
+      clearLCD();
+      delay(1);
+      break;
+    }
+
     if(printScheduleInformation){
-      while((lcdTimeout + 2000) > millis()){
-        delay(800);
+      while((lcdTimeout + 1000) > millis()){
+        delay(200);
       }
       printTextLCD((onGoingSchedule->classCode).c_str(), 0);
       printTextLCD((onGoingSchedule->startTime.substr(0, 5) + "-" + onGoingSchedule->endTime.substr(0, 5)).c_str(), 1);
@@ -1912,7 +1916,7 @@ bool syncingAttendanceData(uint16_t scheduleID){
     }
   }
 
-  if(attendanceArray.size() == 0){
+  if(attendanceArray.length() <= 0){
     return true;
   }
 

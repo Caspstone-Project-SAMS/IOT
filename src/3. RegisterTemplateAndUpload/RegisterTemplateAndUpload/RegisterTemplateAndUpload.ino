@@ -311,7 +311,7 @@ void loop() {
     // Scanning to register fingerprint template
     lcd.clear();
     printTextLCD(content, 0);
-    printTextLCD("Registering fingerprint", 1);
+    printTextLCD("fingerprint", 1);
     while(! getFingerprintEnroll());
     String fingerprintTemplate = getFingerprintTemplate();
     uploadFingerprintTemplate(fingerprintTemplate);
@@ -565,7 +565,7 @@ uint8_t getFingerprintEnroll() {
     return p;
   }
 
-  Serial.println("Created successfully");
+  Serial.println("Successfully");
   delay(2000);
 
   // p = finger.storeModel(i);
@@ -652,10 +652,10 @@ String getFingerprintTemplate() {
   // index += 256;       // advance pointer
   // memcpy(fingerTemplate + index, bytesReceived + uindx, 256);   // second 256 bytes
 
-  for(int i = 0; i < 512; i++)
-  {
-    Serial.print(fingerTemplate[i]); Serial.print(" ");
-  }
+  // for(int i = 0; i < 512; i++)
+  // {
+  //   Serial.print(fingerTemplate[i]); Serial.print(" ");
+  // }
 
   // Fingerprint template is presented in Hexa format
   String fingerprintTemplate = "";
@@ -666,8 +666,8 @@ String getFingerprintTemplate() {
     sprintf(tmp, format, fingerTemplate[i]);
     fingerprintTemplate.concat(tmp);
   }
-  Serial.println();
-  Serial.print("Fingerprint template: " ); Serial.println(fingerprintTemplate);
+  //Serial.println();
+  //Serial.print("Fingerprint template: " ); Serial.println(fingerprintTemplate);
   return fingerprintTemplate;
 }
 
@@ -727,7 +727,7 @@ void uploadFingerprintTemplate(String fingerprintTemplate){
   }
 
   lcd.clear();
-  printTextLCD("Registered successfully", 0);
+  printTextLCD("Successfully", 0);
   printTextLCD(payloadData, 1);
   delay(3000);
 
