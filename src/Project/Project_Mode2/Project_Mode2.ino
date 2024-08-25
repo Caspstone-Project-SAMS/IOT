@@ -424,6 +424,18 @@ bool connectWebSocket() {
         delay(50);
         websocketClient.send("Apply configurations successfully");
       }
+      else if(event == "SetupDateTime"){
+        String updatedDateTime = receiveData["UpdatedDateTime"];
+        // Setup new DateTime
+        int year = updatedDateTime.substring(0, 4).toInt();
+        int month = updatedDateTime.substring(5, 7).toInt();
+        int day = updatedDateTime.substring(8, 10).toInt();
+        int hour = updatedDateTime.substring(11, 13).toInt();
+        int min = updatedDateTime.substring(14, 16).toInt();
+        int sec = updatedDateTime.substring(17, 19).toInt();
+        ECHOLN("Updated datetime " + String(year) + ", " + String(month) + ", " + String(day) + ", " + String(hour) + ", " + String(min) + ", " + String(sec));
+        RTCService.setupDS1307DateTime(DateTime(year, month, day, hour, min, sec));
+      }
     }
     else if(message.isBinary()){
       const char* data = message.c_str();
@@ -490,7 +502,7 @@ void setup() {
   connectButton();
   delay(50);
   connectLCD();
-  delay(50);
+  delay(10);
 
   clearLCD();
   printTextLCD("Setting up...", 0);
@@ -524,7 +536,7 @@ void setup() {
   WifiService.setupWiFi(WiFi);
   int wifiStatus = WifiService.connect();
   while((lcdTimeout + 1000) > millis()){
-    delay(500);
+    delay(200);
   }
   if(wifiStatus == CONNECT_OK){
     printTextLCD("Wifi connected", 1);
@@ -541,6 +553,7 @@ void setup() {
   if(WifiService.checkWifi()){
     // Connect to NTP Server
     timeClient.begin();
+    delay(10);
     setupDateTime();
     while((lcdTimeout + 1000) > millis()){
       delay(200);
@@ -695,7 +708,15 @@ void handleNormalMode(){
 }
 
 void handleAttendanceMode(){
+  if(onGoingSchedule == nullptr || onGoingSchedule->isStop){
+    endAttendanceSession();
+    clearLCD();
+    delay(1);
+    return;
+  }
+
   unsigned long lcdTimeout = 0;
+  uint16_t startTime = getScheduleStartTimeInMinute(onGoingSchedule->startTimeStruct);
   while(1){
     if(attendanceModeToSetupMode()){
       while(1){
@@ -723,7 +744,7 @@ void handleAttendanceMode(){
     uint16_t endTime = getScheduleEndTimeInMinute(onGoingSchedule->startTimeStruct, onGoingSchedule->endTimeStruct);
     uint16_t currentTime = getCurrentTimeInMinute();
     
-    if(endTime < currentTime){
+    if(currentTime > endTime || currentTime < startTime){
       ECHOLN("Slot end");
       endAttendanceSession();
       clearLCD();
@@ -749,12 +770,10 @@ void handleAttendanceMode(){
         printTextLCD("Scanning...", 0);
         if(FINGERPSensor.seachFinger() == FINGERPRINT_OK){
           uint16_t fingerId = FINGERPSensor.getFingerID();
-
-          ECHOLN("");
-          ECHOLN("Found finger Id: " + fingerId);
-          ECHOLN("");
-
           if(fingerId > 0){
+            if(websocketClient.available()) {
+              websocketClient.poll();
+            }
             auto finger_matched = [fingerId](const auto& obj){ return obj == fingerId; };
             auto finger_check = [fingerId, &finger_matched](const auto& obj){
               auto it_finger_check = std::find_if(obj.storedFingerID.begin(), obj.storedFingerID.end(), finger_matched);
@@ -1745,6 +1764,11 @@ uint16_t getScheduleEndTimeInMinute(const struct tm& startTime, const struct tm&
   return checkEnd;
 }
 
+uint16_t getScheduleStartTimeInMinute(const struct tm& startTime){
+  uint16_t start = startTime.tm_hour * 60 + startTime.tm_min;
+  return start;
+}
+
 bool updateAttendanceStatus(const uint16_t& scheduleID, const std::string& userID, const DateTime& attendedTime){
   char buf[] = "YYYY-MM-DD hh:mm:ss";
   String dateTime = attendedTime.toString(buf);
@@ -1845,13 +1869,13 @@ void onEventsCallback(WebsocketsEvent event, String data) {
     }
 }
 
-// Cơ chế dự phòng, upload lại 3 lần
+// Cơ chế dự phòng, upload lại 4 lần
 void UploadFingerprintTemplateAgain(uint16_t& storeModelID, uint8_t fingerIndex, StoredFingerprint& storedFingerprint, Attendance& attendance, String& classID){
 
   String baseUrl = "http://" + String(SERVER_IP) + "/api/Student/get-students-by-classId-v2?isModule=true&classID=" + classID + "&userId=" + attendance.userID.c_str();
   //ECHOLN("[UploadFingerprintTemplateAgain] base url: " + baseUrl);
   //http://34.81.224.196/api/Student/get-students-by-classId?classID=29&userId=b60b2e83-b6d3-4240-a422-08dc8640e68a&isModule=true
-  for(uint8_t i = 0; i < 3; i++){
+  for(uint8_t i = 0; i < 4; i++){
     ECHOLN(String() + "[UploadFingerprintTemplateAgain] for " + attendance.studentName.c_str() + " at " + String(i + 1));
 
     http.setTimeout(2000);

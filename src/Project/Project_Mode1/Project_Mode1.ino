@@ -314,6 +314,17 @@ bool connectWebSocket() {
         delay(50);
         websocketClient.send("Apply configurations successfully");
       }
+      else if(event == "SetupDateTime"){
+        String updatedDateTime = receiveData["UpdatedDateTime"];
+        // Setup new DateTime
+        int year = updatedDateTime.substring(0, 3).toInt();
+        int month = updatedDateTime.substring(5, 6).toInt();
+        int day = updatedDateTime.substring(8, 9).toInt();
+        int hour = updatedDateTime.substring(11, 12).toInt();
+        int min = updatedDateTime.substring(14, 15).toInt();
+        int sec = updatedDateTime.substring(17, 18).toInt();
+        RTCService.setupDS1307DateTime(DateTime(year, month, day, hour, min, sec));
+      }
     }
     else if(message.isBinary()){
       const char* data = message.c_str();
@@ -388,8 +399,8 @@ void setup() {
 
   // Connect to R308 fingerprint sensor
   check = FINGERPSensor.connectFingerprintSensor();
-  while((lcdTimeout + 2000) > millis()){
-    delay(800);
+  while((lcdTimeout + 1000) > millis()){
+    delay(200);
   }
   if(check){
     printTextLCD("Fingerprint Sensor connected", 1);
@@ -406,8 +417,8 @@ void setup() {
   //Serial.print("Address of WiFi object (1): "); Serial.println(reinterpret_cast<uintptr_t>(&WiFi), HEX);
   WifiService.setupWiFi(WiFi);
   int wifiStatus = WifiService.connect();
-  while((lcdTimeout + 2000) > millis()){
-    delay(800);
+  while((lcdTimeout + 1000) > millis()){
+    delay(200);
   }
   if(wifiStatus == CONNECT_OK){
     printTextLCD("Wifi connected", 1);
@@ -422,17 +433,19 @@ void setup() {
 
   if(WifiService.checkWifi()){
     // Connect to NTP Server
-    while((lcdTimeout + 2000) > millis()){
-      delay(800);
-    }
     timeClient.begin();
+    delay(10);
+    setupDateTime();
+    while((lcdTimeout + 1000) > millis()){
+      delay(200);
+    }
     printTextLCD("NTP server connected", 1);
     lcdTimeout = millis();
 
     // Connect to websockets
     check = connectWebSocket();
-    while((lcdTimeout + 2000) > millis()){
-      delay(800);
+    while((lcdTimeout + 1000) > millis()){
+      delay(200);
     }
     if(check){
       printTextLCD("Websockets connected", 1);
@@ -442,14 +455,12 @@ void setup() {
     }
     lcdTimeout = millis();
   }
-
-  setupDateTime();
+  
   resetData();
-  while((lcdTimeout + 2000) > millis()){
-    delay(800);
-  }
+
+  delay(50);
   printTextLCD("Setup done!!!", 1);
-  delay(2000);
+  delay(1000);
   
   clearLCD();
 }
@@ -659,7 +670,7 @@ void handleRegistrationMode(){
   p = FINGERPSensor.getImage1();
   if(p != FINGERPRINT_OK){
     printTextLCD("Try again", 1);
-    delay(2000);
+    delay(1500);
     return;
   }
 
@@ -682,7 +693,7 @@ void handleRegistrationMode(){
   }
 
   // Place finger again
-  printTextLCD("Place same finger again", 1);
+  printTextLCD("Place finger again", 1);
   p = -1;
   while (p != FINGERPRINT_OK){
     p = FINGERPSensor.scanFinger();
@@ -703,7 +714,7 @@ void handleRegistrationMode(){
   p = FINGERPSensor.getImage2();
   if(p != FINGERPRINT_OK){
     printTextLCD("Try again", 1);
-    delay(2000);
+    delay(1500);
     return;
   }
 
@@ -714,19 +725,19 @@ void handleRegistrationMode(){
   }
   else if(p == FINGERPRINT_ENROLLMISMATCH){
     printTextLCD("Finger does not match", 1);
-    delay(2000);
+    delay(1500);
     return;
   }
   else{
     printTextLCD("Error: try again", 1);
-    delay(2000);
+    delay(1500);
     return;
   }
 
   String fingerprintTemplate = FINGERPSensor.getFingerprintTemplate();
   if(fingerprintTemplate == ""){
     printTextLCD("Created failed: finger null", 1);
-    delay(2000);
+    delay(1500);
     return;
   }
 
@@ -771,7 +782,7 @@ void handleRegistrationMode(){
       printTextLCD("Unkonw error", 1);
       break;
   }
-  delay(2000);
+  delay(1000);
   clearLCD();
 }
 
