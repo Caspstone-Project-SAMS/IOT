@@ -25,8 +25,8 @@ using namespace websockets;
 
 
 //======================================Macro define=====================================
-#define SERVER_IP "34.81.224.196"
-#define WEBSOCKETS_SERVER_HOST "34.81.224.196"
+#define SERVER_IP "34.81.223.233"
+#define WEBSOCKETS_SERVER_HOST "34.81.223.233"
 #define WEBSOCKETS_SERVER_PORT 80
 #define WEBSOCKETS_PROTOCOL "ws"
 
@@ -212,7 +212,7 @@ static const unsigned long updateAttendanceStatusIntervalTime = 15000; //15 seco
 //=======================================================================================
 
 
-// String key = "gzqzg4cbIp0dUAEHsVSvRDtgg";
+//String key = "gzqzg4cbIp0dUAEHsVSvRDtgg";
 String key = "xSJ6nDkyRcjYn81hPy5H9fRZg";
 
 bool printConnectingMode = false;
@@ -1359,7 +1359,7 @@ int getSchedules(uint8_t& totalSchedules) {
     currentDate = session->prepareDate.c_str();
   }
   String url = "http://" + String(SERVER_IP) + "/api/Schedule?lecturerId=" + lecturerId + "&semesterId=" + semesterId + "&startDate=" + currentDate + "&endDate=" + currentDate + "&quantity=10";
-  //http://34.81.224.196/api/Schedule?lecturerId=a829c0b5-78dc-4194-a424-08dc8640e68a&quantity=10&semesterId=2&startDate=2024-07-07&endDate=2024-07-07
+  //http://34.81.223.233/api/Schedule?lecturerId=a829c0b5-78dc-4194-a424-08dc8640e68a&quantity=10&semesterId=2&startDate=2024-07-07&endDate=2024-07-07
   
   ECHOLN(url);
 
@@ -1419,8 +1419,8 @@ int getSchedules(uint8_t& totalSchedules) {
 
 bool getScheduleById(uint16_t scheduleId, uint16_t& totalFingers, uint16_t& uploadedFingers){
   String url = "http://" + String(SERVER_IP) + "/api/Schedule/module/" + String(scheduleId);
-  //http://34.81.224.196/api/Schedule/81
-  //http://34.81.224.196/api/Schedule/module/870
+  //http://34.81.223.233/api/Schedule/81
+  //http://34.81.223.233/api/Schedule/module/870
 
   http.begin(wifiClient, url);
 
@@ -1525,7 +1525,7 @@ void orderSchedules(){
 int getScheduleInformation(Schedule& schedule, uint16_t& storeModelID, uint16_t& totalFingers){
   int page = 1;
   String baseUrl = "http://" + String(SERVER_IP) + "/api/Student/get-students-by-classId-v2?isModule=true&quantity=2&classID=" + String(schedule.classID);
-  //http://34.81.224.196/api/Student/get-students-by-classId?classID=2&startPage=1&endPage=1&quantity=2&isModule=true
+  //http://34.81.223.233/api/Student/get-students-by-classId?classID=2&startPage=1&endPage=1&quantity=2&isModule=true
 
   if(session && (appMode == PREPARE_ATTENDANCE_MODE || appMode == PREPARE_SCHEDULES_MODE)){
     baseUrl = baseUrl + "&sessionId=" + String(session->sessionID);
@@ -1874,7 +1874,7 @@ void UploadFingerprintTemplateAgain(uint16_t& storeModelID, uint8_t fingerIndex,
 
   String baseUrl = "http://" + String(SERVER_IP) + "/api/Student/get-students-by-classId-v2?isModule=true&classID=" + classID + "&userId=" + attendance.userID.c_str();
   //ECHOLN("[UploadFingerprintTemplateAgain] base url: " + baseUrl);
-  //http://34.81.224.196/api/Student/get-students-by-classId?classID=29&userId=b60b2e83-b6d3-4240-a422-08dc8640e68a&isModule=true
+  //http://34.81.223.233/api/Student/get-students-by-classId?classID=29&userId=b60b2e83-b6d3-4240-a422-08dc8640e68a&isModule=true
   for(uint8_t i = 0; i < 4; i++){
     ECHOLN(String() + "[UploadFingerprintTemplateAgain] for " + attendance.studentName.c_str() + " at " + String(i + 1));
 

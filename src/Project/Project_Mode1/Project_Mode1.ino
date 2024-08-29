@@ -73,8 +73,8 @@ class RegisteringSession{
 
 
 //=========================Macro define=============================
-#define SERVER_IP "34.81.224.196"
-#define WEBSOCKETS_SERVER_HOST "34.81.224.196"
+#define SERVER_IP "34.81.223.233"
+#define WEBSOCKETS_SERVER_HOST "34.81.223.233"
 #define WEBSOCKETS_SERVER_PORT 80
 #define WEBSOCKETS_PROTOCOL "ws"
 
