@@ -851,6 +851,7 @@ void handleAttendancePreparationMode(){
     resetData();
 
     printTextLCD("Loading schedule data", 0);
+    printTextLCD("Loading...", 1);
 
     uint16_t totalFingers = 0;
     uint16_t uploadedFingers = 0;
@@ -898,12 +899,13 @@ void handlePrepareSchedulesMode(){
 
     clearLCD();
     printTextLCD("Loading schedules data", 0);
+    printTextLCD("Loading...", 1);
 
     uint8_t total = 0;
     uint8_t loaded = 0;
     uint16_t totalFingers = 0;
     uint16_t uploadedFingers = 0;
-    int loadingStatus = loadingData(total, loaded, totalFingers, uploadedFingers);
+    int loadingStatus = loadingData(total, loaded, totalFingers, uploadedFingers, session->sessionID);
 
     switch(loadingStatus){
       case CONNECTION_LOST:
@@ -1298,7 +1300,7 @@ bool attendanceModeToSetupMode(){
   return updated;
 }
 
-int loadingData(uint8_t& total, uint8_t& loaded, uint16_t& totalFingers, uint16_t& uploadedFingers){
+int loadingData(uint8_t& total, uint8_t& loaded, uint16_t& totalFingers, uint16_t& uploadedFingers, uint16_t sessionID){
   if(!WifiService.checkWifi()) {
     return CONNECTION_LOST;
   }
@@ -1325,24 +1327,35 @@ int loadingData(uint8_t& total, uint8_t& loaded, uint16_t& totalFingers, uint16_
       break;
   }
 
+  //uint16_t oldStoredModelId = 1;
+  uint16_t oldStoredModelId = 1;
   uint16_t storeModelID = 1;
   for(Schedule& schedule : schedules){
     if(getScheduleInformation(schedule, storeModelID, totalFingers) == GET_SUCCESS){
       loaded++;
+      printTextLCD("Loaded " + String(loaded) + " schedules", 1);
+  ECHOLN("Old: " + String(oldStoredModelId) + ", new: " + String(storeModelID));
+      // Should update the state of preparation - uploaded finger of the current schedule
+      String updateStateUrl = "http://" + String(SERVER_IP) + "/api/Session/schedule-preparation/state-update";
+      // http://34.81.223.233/api/Session/schedule-preparation/state-update
+      JSONVar updateState;
+      updateState["SessionId"] = sessionID;
+      updateState["UploadedFingerprints"] = storeModelID - oldStoredModelId;
+      updateState["ScheduleId"] = schedule.scheduleID;
+
+      String payload = JSON.stringify(updateState);
+      http.begin(wifiClient, updateStateUrl);
+      http.addHeader("Content-Type", "application/json");
+      int httpCode = http.POST(payload);
+
+      payload.clear();
+      http.end();
+      
+      oldStoredModelId = storeModelID;
     }
   }
   ECHOLN("Stored models: " + String(storeModelID - 1));
   uploadedFingers = storeModelID - 1;
-
-  // for(Schedule& schedule : schedules){
-  //     ECHOLN(String("Schedule of ") + schedule.classCode.c_str() + " has " + String(schedule.attendances.size()) + " attendances");
-  //     for(Attendance& attendance : schedule.attendances){
-  //       for(uint16_t fingerId : attendance.storedFingerID){
-  //         ECHO(String(fingerId));
-  //       }
-  //       ECHOLN();
-  //     }
-  //   }
 
   if(websocketClient.available()) {
     websocketClient.poll();
@@ -1634,7 +1647,7 @@ int getScheduleInformation(Schedule& schedule, uint16_t& storeModelID, uint16_t&
         attendance.studentName = (const char*)students[i]["studentName"];
         attendance.studentCode = (const char*)students[i]["studentCode"];
 
-        // if there is a student information already added, so the fingerprint template also
+        // if there is a student information already added, so the fingerprint template also, but we still need to record that uploaded
         std::string userID = attendance.userID;
         auto finger_already = [userID](const auto& obj){
           return (obj.userID == userID && obj.storedFingerID.size() > 0);
@@ -1642,6 +1655,7 @@ int getScheduleInformation(Schedule& schedule, uint16_t& storeModelID, uint16_t&
         auto it_finger_already = std::find_if(storedFingerprints.begin(), storedFingerprints.end(), finger_already);
         if(it_finger_already != storedFingerprints.end()){
           attendance.storedFingerID = it_finger_already->storedFingerID;
+          storeModelID = storeModelID + it_finger_already->storedFingerID.size();
         }
         else{
           StoredFingerprint storedFingerprint;
