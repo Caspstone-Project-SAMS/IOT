@@ -11,7 +11,7 @@ class RTCServiceClass{
     RTCServiceClass();
     ~RTCServiceClass();
     bool connectDS1307();
-    bool setupDS1307DateTime(DateTime dateTime);
+    bool setupDS1307DateTime(DateTime& dateTime);
     bool getDS1307DateTime(DateTime& dateTime);
 };
 

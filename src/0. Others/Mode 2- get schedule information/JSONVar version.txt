@@ -1,0 +1,113 @@
+int getScheduleInformation(Schedule& schedule, uint16_t& storeModelID, uint16_t& totalFingers){
+  int page = 1;
+  std::string baseUrl = "https://sams-project.com/api/Student/get-students-by-classId-v2?isModule=true&quantity=1&classID=" + std::to_string(schedule.classID);
+  //http://34.81.223.233/api/Student/get-students-by-classId?classID=2&startPage=1&endPage=1&quantity=2&isModule=true
+
+  if(session && (appMode == PREPARE_ATTENDANCE_MODE || appMode == PREPARE_SCHEDULES_MODE)){
+    baseUrl = baseUrl + "&sessionId=" + std::to_string(session->sessionID);
+  }
+
+  while(true){
+    delay(10);
+    ECHO("111: ");
+    ECHOLN(ESP.getFreeHeap());
+
+    if(websocketClient.available()) {
+      websocketClient.poll();
+    }
+
+    std::string calledUrl = baseUrl + "&startPage=" + std::to_string(page) + "&endPage=" + std::to_string(page);
+    std::unique_ptr<BearSSL::WiFiClientSecure> wifiClient(new BearSSL::WiFiClientSecure);
+    wifiClient->setFingerprint(fingerprint_sams_com);
+    HTTPClient https;
+    https.begin(*wifiClient, calledUrl.c_str());
+
+    int httpCode = https.GET();
+
+    ECHO("aaa1: ");
+    ECHOLN(ESP.getFreeHeap());
+
+    JSONVar students = JSON.parse(https.getString());
+
+    ECHO("aaa2: ");
+    ECHOLN(ESP.getFreeHeap());
+
+    https.end();
+    wifiClient->stop();
+
+    if (httpCode != HTTP_CODE_OK){
+      ECHOLN("[getScheduleInformation] HTTP is not OK: " + https.errorToString(httpCode));
+      page++;
+      continue;
+    }
+
+    if(students.length() == 0){
+      ECHOLN("[getScheduleInformation] Size of students array is 0");
+      students = JSONVar();
+      break;
+    }
+
+    if(websocketClient.available()) {
+      websocketClient.poll();
+    }
+
+    for(int i = 0; i < students.length(); i++) {
+      // If student have finger informations, lets store it
+      if(JSON.typeof(students[i]["fingerprintTemplateData"])=="array" && students[i]["fingerprintTemplateData"].length() > 0){
+        Attendance attendance;
+        attendance.scheduleID = schedule.scheduleID;
+        attendance.userID = (const char*)students[i]["userID"];
+        attendance.studentName = (const char*)students[i]["studentName"];
+        attendance.studentCode = (const char*)students[i]["studentCode"];
+
+        // if there is a student information already added, so the fingerprint template also, but we still need to record that uploaded
+        std::string userID = attendance.userID;
+        auto finger_already = [userID](const auto& obj){
+          return (obj.userID == userID && obj.storedFingerID.size() > 0);
+        };
+        auto it_finger_already = std::find_if(storedFingerprints.begin(), storedFingerprints.end(), finger_already);
+        if(it_finger_already != storedFingerprints.end()){
+          attendance.storedFingerID = it_finger_already->storedFingerID;
+          storeModelID = storeModelID + it_finger_already->storedFingerID.size();
+        }
+        else{
+          StoredFingerprint storedFingerprint;
+          storedFingerprint.userID = userID;
+          for(uint8_t fingerIndex = 0; fingerIndex < students[i]["fingerprintTemplateData"].length(); fingerIndex++){
+            totalFingers++;
+            bool uploadFingerStatus = FINGERPSensor.uploadFingerprintTemplate((const char*)students[i]["fingerprintTemplateData"][fingerIndex], storeModelID);
+            if(!uploadFingerStatus){
+              const std::string classId = std::to_string(schedule.classID);
+              students = JSONVar();
+              UploadFingerprintTemplateAgain(storeModelID, fingerIndex, storedFingerprint, attendance, classId);
+            }
+            else{
+              ECHO("Stored fingerprint id: "); ECHOLN(String(storeModelID));
+              attendance.storedFingerID.push_back(storeModelID);
+              storedFingerprint.storedFingerID.push_back(storeModelID);
+              ++storeModelID;
+            }
+          }
+          if(storedFingerprint.storedFingerID.size() > 0){
+            storedFingerprints.push_back(storedFingerprint);
+          }
+        }
+        schedule.attendances.push_back(attendance);
+      }
+
+      if(websocketClient.available()) {
+        websocketClient.poll();
+      }
+    }
+
+    page++;
+    //students = JSONVar();
+
+    ECHO("444: ");
+    ECHOLN(ESP.getFreeHeap());
+  }
+
+  // Thêm cơ chế chạy lại những thằng lỗi
+
+  return GET_SUCCESS;
+}

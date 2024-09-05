@@ -14,13 +14,13 @@ FingerprintSensorClass::~FingerprintSensorClass(){
 
 
 bool FingerprintSensorClass::connectFingerprintSensor(){
-  ECHOLN(F("\n\nAdafruit Fingerprint sensor enrollment"));
+  //ECHOLN(F("\n\nAdafruit Fingerprint sensor enrollment"));
   finger.begin(57600);
   if (finger.verifyPassword()) {
-    ECHOLN(F("Found fingerprint sensor!"));
+    //ECHOLN(F("Found fingerprint sensor!"));
     return true;
   } else {
-    ECHOLN(F("Did not find fingerprint sensor :("));
+    //ECHOLN(F("Did not find fingerprint sensor :("));
     return false;
   }
 }
@@ -43,63 +43,63 @@ uint16_t FingerprintSensorClass::getFingerID(){
 }
 
 
-String FingerprintSensorClass::getFingerprintTemplate(){
-  ECHO("Attempting to get fingerprint template...\n");
-  uint8_t p = finger.getModel();
-  switch (p) {
-    case FINGERPRINT_OK:
-      ECHO("Template "); ECHOLN(" transferring:");
-      break;
-    default:
-      ECHO("Unknown error "); ECHOLN(p);
-      return "";
-  }
+// String FingerprintSensorClass::getFingerprintTemplate(){
+//   //ECHO("Attempting to get fingerprint template...\n");
+//   uint8_t p = finger.getModel();
+//   switch (p) {
+//     case FINGERPRINT_OK:
+//       //ECHO("Template "); ECHOLN(" transferring:");
+//       break;
+//     default:
+//       //ECHO("Unknown error "); ECHOLN(p);
+//       return "";
+//   }
 
-  // one data packet is 139 bytes. in one data packet, 11 bytes are 'usesless' :D
-  uint8_t bytesReceived[556]; // 4 data packets
-  memset(bytesReceived, 0xff, 556);
-  uint32_t starttime = millis();
-  int byteIndex = 0;
-  while (byteIndex < 556 && (millis() - starttime) < 5000) {
-    if (mySerial1.available()) {
-      bytesReceived[byteIndex++] = mySerial1.read();
-    }
-  }
-  ECHO(byteIndex); ECHOLN(" bytes read.");
-  ECHOLN("Decoding packet...");
+//   // one data packet is 139 bytes. in one data packet, 11 bytes are 'usesless' :D
+//   uint8_t bytesReceived[556]; // 4 data packets
+//   memset(bytesReceived, 0xff, 556);
+//   uint32_t starttime = millis();
+//   int byteIndex = 0;
+//   while (byteIndex < 556 && (millis() - starttime) < 5000) {
+//     if (mySerial1.available()) {
+//       bytesReceived[byteIndex++] = mySerial1.read();
+//     }
+//   }
+//   //ECHO(byteIndex); ECHOLN(" bytes read.");
+//   //ECHOLN("Decoding packet...");
 
-  uint8_t fingerTemplate[512]; // the real template
-  memset(fingerTemplate, 0xff, 512);
+//   uint8_t fingerTemplate[512]; // the real template
+//   memset(fingerTemplate, 0xff, 512);
 
-  for(int m=0;m<4;m++){ //filtering data packets
-    uint8_t stat=bytesReceived[(m*(128+11))+6];
-    if( stat!= FINGERPRINT_DATAPACKET && stat!= FINGERPRINT_ENDDATAPACKET){
-      ECHOLN("Bad fingerprint_packet");
-      while(1){
-        delay(1);
-      }
-    }
-    memcpy(fingerTemplate + (m*128), bytesReceived + (m*(128+11))+9, 128); 
-  }
+//   for(int m=0;m<4;m++){ //filtering data packets
+//     uint8_t stat=bytesReceived[(m*(128+11))+6];
+//     if( stat!= FINGERPRINT_DATAPACKET && stat!= FINGERPRINT_ENDDATAPACKET){
+//       //ECHOLN("Bad fingerprint_packet");
+//       while(1){
+//         delay(1);
+//       }
+//     }
+//     memcpy(fingerTemplate + (m*128), bytesReceived + (m*(128+11))+9, 128); 
+//   }
 
-  for(int i = 0; i < 512; i++)
-  {
-    ECHO(fingerTemplate[i]); ECHO(" ");
-  }
+//   for(int i = 0; i < 512; i++)
+//   {
+//     //ECHO(fingerTemplate[i]); ECHO(" ");
+//   }
 
-  // Fingerprint template is presented in Hexa format
-  String fingerprintTemplate = "";
-  for (int i = 0; i < 512; ++i) {
-    char tmp[16];
-    char format[128];
-    sprintf(format, "%%.%dX", 2);
-    sprintf(tmp, format, fingerTemplate[i]);
-    fingerprintTemplate.concat(tmp);
-  }
-  ECHOLN();
-  ECHO("Fingerprint template: " ); ECHOLN(fingerprintTemplate);
-  return fingerprintTemplate;
-}
+//   // Fingerprint template is presented in Hexa format
+//   String fingerprintTemplate = "";
+//   for (int i = 0; i < 512; ++i) {
+//     char tmp[16];
+//     char format[128];
+//     sprintf(format, "%%.%dX", 2);
+//     sprintf(tmp, format, fingerTemplate[i]);
+//     fingerprintTemplate.concat(tmp);
+//   }
+//   //ECHOLN();
+//   //ECHO("Fingerprint template: " ); ECHOLN(fingerprintTemplate);
+//   return fingerprintTemplate;
+// }
 
 
 uint8_t FingerprintSensorClass::deleteFingerprint(uint8_t id){
@@ -108,15 +108,15 @@ uint8_t FingerprintSensorClass::deleteFingerprint(uint8_t id){
   p = finger.deleteModel(id);
 
   if (p == FINGERPRINT_OK) {
-    ECHOLN("Delete successfully!");
+    //ECHOLN("Delete successfully!");
   } else if (p == FINGERPRINT_PACKETRECIEVEERR) {
-    ECHOLN("Communication error");
+    //ECHOLN("Communication error");
   } else if (p == FINGERPRINT_BADLOCATION) {
-    ECHOLN("Could not delete in that location");
+    //ECHOLN("Could not delete in that location");
   } else if (p == FINGERPRINT_FLASHERR) {
-    ECHOLN("Error writing to flash");
+    //ECHOLN("Error writing to flash");
   } else {
-    ECHO("Unknown error: 0x"); Serial.println(p, HEX);
+    //ECHO("Unknown error: 0x"); Serial.println(p, HEX);
   }
 
   return p;
@@ -129,8 +129,8 @@ void FingerprintSensorClass::emptyDatabase(){
 
 
 // Convert fingerprint template in a string of hexa to binary (8 bit unsigned integer)
-uint8_t FingerprintSensorClass::convert_hex_to_binary(std::string hexString){
-  uint8_t resultArray[512];
+uint8_t FingerprintSensorClass::convert_hex_to_binary(std::string& hexString){
+  //uint8_t resultArray[512];
   // Process the input string
   if(hexString.length() != 2) {
     // Handle invalid input (string length must be exactly 2)
@@ -144,7 +144,7 @@ uint8_t FingerprintSensorClass::convert_hex_to_binary(std::string hexString){
 }
 
 
-bool FingerprintSensorClass::uploadFingerprintTemplate(const std::string& fingerData, uint16_t storeModelID){
+bool FingerprintSensorClass::uploadFingerprintTemplate(const char* fingerData, uint16_t& storeModelID){
   uint8_t fingerTemplate[512];
   memset(fingerTemplate, 0xff, 512);
   for (int i = 0; i < 512; i++) {
@@ -154,6 +154,8 @@ bool FingerprintSensorClass::uploadFingerprintTemplate(const std::string& finger
     std::string hexPairString(hexPair, hexPair + 2);
     fingerTemplate[i] = convert_hex_to_binary(hexPairString);
   }
+
+  ECHOLN(" **");
 
   if(finger.write_template_to_sensor(TEMPLATE_BUF_SIZE,fingerTemplate)){
     if(finger.storeModel(storeModelID) == FINGERPRINT_OK){

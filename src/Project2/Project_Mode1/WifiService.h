@@ -25,7 +25,6 @@ class WifiServiceClass{
     WifiServiceClass();
     ~WifiServiceClass();
     void setupAP();
-    void setupWiFi(ESP8266WiFiClass &Wifi);
     int connect();
     int connect(const String &ssid, const String &pass);
     int connectNewWifi(const String &ssid, const String &pass);

@@ -25,54 +25,54 @@ void WifiServiceClass::setupWiFi(ESP8266WiFiClass &Wifi){
 
 int WifiServiceClass::connect(){
   if(WiFii){
-    ECHOLN("[WifiServiceClass][connect] Read wifi SSID and PASS from EEPROM");
+    //ECHOLN("[WifiServiceClass][connect] Read wifi SSID and PASS from EEPROM");
     String ssid = EEPROMH.read(EEPROM_WIFI_SSID_START, EEPROM_WIFI_SSID_END);
     String pass = EEPROMH.read(EEPROM_WIFI_PASS_START, EEPROM_WIFI_PASS_END);
     return connect(ssid, pass);
   }
-  ECHOLN("[WifiServiceClass][connect] WiFi object not found");
+  //ECHOLN("[WifiServiceClass][connect] WiFi object not found");
   return CONNECT_TIMEOUT;
 }
 
 
 int WifiServiceClass::connect(const String &ssid, const String &pass){
-  ECHOLN("[WifiService][connect] Open STA....");
-  ECHO("[WifiService][connect] Wifi connect to: ");
-  ECHOLN(ssid);
-  ECHO("[WifiService][connect] With pass: ");
-  ECHOLN(pass);
+  //ECHOLN("[WifiService][connect] Open STA....");
+  //ECHO("[WifiService][connect] Wifi connect to: ");
+  //ECHOLN(ssid);
+  //ECHO("[WifiService][connect] With pass: ");
+  //ECHOLN(pass);
   WiFii->softAPdisconnect();
   WiFii->disconnect();
   WiFii->mode(WIFI_STA);
   delay(100);
   WiFii->begin(ssid.c_str(), pass.c_str());
 
-  ECHOLN("Waiting for Wifi to connect");
+  //ECHOLN("Waiting for Wifi to connect");
   int c = 0;
   while(c < 30){
     if(WiFii->status() == WL_CONNECTED){
-      ECHOLN("Wifi connected!");
-      ECHO("Local IP: ");
-      ECHOLN(WiFii->localIP());
+      //ECHOLN("Wifi connected!");
+      //ECHO("Local IP: ");
+      //ECHOLN(WiFii->localIP());
       return CONNECT_OK;
     }
     delay(500);
-    ECHO(".");
+    //ECHO(".");
     c++;
   }
 
-  ECHOLN("");
-  ECHOLN("Connection timed out");
+  //ECHOLN("");
+  //ECHOLN("Connection timed out");
   return CONNECT_TIMEOUT;
 }
 
 
 int WifiServiceClass::connectNewWifi(const String &ssid, const String &pass){
-  ECHOLN("[WifiService][connect] Open STA....");
-  ECHO("[WifiService][connect] Wifi connect to: ");
-  ECHOLN(ssid);
-  ECHO("[WifiService][connect] With pass: ");
-  ECHOLN(pass);
+  //ECHOLN("[WifiService][connect] Open STA....");
+  //ECHO("[WifiService][connect] Wifi connect to: ");
+  //ECHOLN(ssid);
+  //ECHO("[WifiService][connect] With pass: ");
+  //ECHOLN(pass);
 
   WiFii->softAPdisconnect();
   WiFii->disconnect();
@@ -80,23 +80,23 @@ int WifiServiceClass::connectNewWifi(const String &ssid, const String &pass){
   delay(100);
   WiFii->begin(ssid.c_str(), pass.c_str());
 
-  ECHOLN("Waiting for Wifi to connect");
+  //ECHOLN("Waiting for Wifi to connect");
   int c = 0;
   while(c < 30){
     if(WiFii->status() == WL_CONNECTED){
-      ECHOLN("Wifi connected!");
-      ECHO("Local IP: ");
-      ECHOLN(WiFii->localIP());
+      //ECHOLN("Wifi connected!");
+      //ECHO("Local IP: ");
+      //ECHOLN(WiFii->localIP());
       storeWifi(ssid, pass);
       setupAPWifi();
       return CONNECT_OK;
     }
     delay(500);
-    ECHO(".");
+    //ECHO(".");
     c++;
   }
 
-  ECHOLN("Connection timed out");
+  //ECHOLN("Connection timed out");
   setupAPWifi();
   return CONNECT_TIMEOUT;
 }
@@ -110,22 +110,22 @@ void WifiServiceClass::storeWifi( const String &ssid, const String &pass){
 
 
 void WifiServiceClass::setupAP(){
-  ECHOLN("[WifiService][setupAP] Open AP....");
+  //ECHOLN("[WifiService][setupAP] Open AP....");
   WiFii->softAPdisconnect();
   WiFii->disconnect();
   delay(3000);
   WiFii->mode(WIFI_AP);
 
   WiFii->softAP(WIFI_AP_SSID, WIFI_AP_PASSWORD);
-  ECHO("[WifiService][setupAP] Connect to wifi:");
-  ECHOLN(WIFI_AP_SSID);
-  ECHO("[WifiService][setupAP] Password:");
-  ECHOLN(WIFI_AP_PASSWORD);
+  //ECHO("[WifiService][setupAP] Connect to wifi:");
+  //ECHOLN(WIFI_AP_SSID);
+  //ECHO("[WifiService][setupAP] Password:");
+  //ECHOLN(WIFI_AP_PASSWORD);
 
-  ECHOLN("[WifiService][setupAP] Softap is running!");
+  //ECHOLN("[WifiService][setupAP] Softap is running!");
   IPAddress myIP = WiFii->softAPIP();
-  ECHO("[WifiService][setupAP] IP address: ");
-  ECHOLN(myIP);
+  //ECHO("[WifiService][setupAP] IP address: ");
+  //ECHOLN(myIP);
 }
 
 

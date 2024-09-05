@@ -20,7 +20,7 @@ bool RTCServiceClass::connectDS1307(){
   int reconnectTimes = 0;
   while(reconnectTimes < 4){
     delay(200);
-    Serial.println("Connect RTC: " + String(reconnectTimes + 1));
+    //Serial.println("Connect RTC: " + String(reconnectTimes + 1));
     if(rtc.begin()){
       haveRTC = true;
       return true;
@@ -30,7 +30,7 @@ bool RTCServiceClass::connectDS1307(){
   return false;
 }
 
-bool RTCServiceClass::setupDS1307DateTime(DateTime dateTime){
+bool RTCServiceClass::setupDS1307DateTime(DateTime& dateTime){
   if(haveRTC){
     rtc.adjust(dateTime);
     return true;

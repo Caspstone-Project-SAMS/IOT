@@ -1,13 +1,19 @@
 #include <ESP8266HTTPClient.h>
 #include <ArduinoWebsockets.h>
+#include <WiFiClientSecureBearSSL.h>
 
 #include <Arduino_JSON.h>
+#include <ArduinoJson.h>
 #include <string>
 #include <unordered_map>
 
 #include <WiFiUdp.h>
 #include <NTPClient.h>               
 #include <TimeLib.h>
+
+#include <avr/pgmspace.h>
+
+//#include <StreamUtils.h>
 
 #include <ESP8266WebServer.h>
 #include "EEPRomService.h"
@@ -29,6 +35,9 @@ using namespace websockets;
 #define WEBSOCKETS_SERVER_HOST "34.81.223.233"
 #define WEBSOCKETS_SERVER_PORT 80
 #define WEBSOCKETS_PROTOCOL "ws"
+
+#define DOMAIN "sams-project.com"
+#define SSL_PORT 443
 
 // For getting schedules
 #define CONNECTION_LOST 1
@@ -138,9 +147,9 @@ String semesterId = "5";
 
 
 // DateTime format
-const char* dateFormat = "%Y-%m-%d";
-const char* timeFormat = "%H:%M:%S";
-const char* dateTimeFormat = "%Y-%m-%d %H:%M:%S";
+const char dateFormat[] = "%Y-%m-%d";
+const char timeFormat[] = "%H:%M:%S";
+//const char dateTimeFormat[]  = "%Y-%m-%d %H:%M:%S";
 //==================================
 
 
@@ -173,8 +182,7 @@ static const unsigned long intervalTimeCheckWebsocket = 10000; // 10 seconds
 
 
 // Http Client
-WiFiClient wifiClient;
-HTTPClient http;
+//HTTPClient http;
 //================================
 
 //Session management
@@ -212,14 +220,14 @@ static const unsigned long updateAttendanceStatusIntervalTime = 15000; //15 seco
 //=======================================================================================
 
 
-//String key = "gzqzg4cbIp0dUAEHsVSvRDtgg";
-String key = "xSJ6nDkyRcjYn81hPy5H9fRZg";
+const char key[] PROGMEM = "gzqzg4cbIp0dUAEHsVSvRDtgg";
+//const char key[] PROGMEM = "xSJ6nDkyRcjYn81hPy5H9fRZg";
 
 bool printConnectingMode = false;
 
-unsigned long limitRange = 4294907290;
+//unsigned long limitRange = 4294907290;
 
-std::vector<char*> errorCalledGetScheduleInformationUrl;
+//std::vector<char*> errorCalledGetScheduleInformationUrl;
 
 
 //============================ Configuration =============================
@@ -231,6 +239,10 @@ bool attendanceSound = false;
 uint16_t attendanceSoundDurationMs = 400;
 
 uint8_t attendanceDurationMinutes = 0;
+
+//======================================== TLS/SSL ==================================
+const char fingerprint_sams_com [] PROGMEM = "DC:19:DE:0B:D0:79:11:E4:BE:75:BE:4F:BD:FC:B9:DE:D9:0A:E7:4F";
+
 
 
 //=====================================Set up code=======================================
@@ -433,14 +445,15 @@ bool connectWebSocket() {
         int hour = updatedDateTime.substring(11, 13).toInt();
         int min = updatedDateTime.substring(14, 16).toInt();
         int sec = updatedDateTime.substring(17, 19).toInt();
-        ECHOLN("Updated datetime " + String(year) + ", " + String(month) + ", " + String(day) + ", " + String(hour) + ", " + String(min) + ", " + String(sec));
-        RTCService.setupDS1307DateTime(DateTime(year, month, day, hour, min, sec));
+        //ECHOLN("Updated datetime " + String(year) + ", " + String(month) + ", " + String(day) + ", " + String(hour) + ", " + String(min) + ", " + String(sec));
+        DateTime newDateTime(year, month, day, hour, min, sec);
+        RTCService.setupDS1307DateTime(newDateTime);
       }
     }
     else if(message.isBinary()){
       const char* data = message.c_str();
       if(strcmp(data, "ping") == 0){
-        ECHOLN("Receive custom ping, lets send pong");
+        //ECHOLN("Receive custom ping, lets send pong");
         String sendMessage = "pong";
 
         websocketClient.sendBinary(sendMessage.c_str(), sendMessage.length());
@@ -449,11 +462,20 @@ bool connectWebSocket() {
       }
     }
     else{
-      ECHOLN("Does not found anything");
+      //ECHOLN("Does not found anything");
     }
   });
 
-  return websocketClient.connect(WEBSOCKETS_SERVER_HOST, WEBSOCKETS_SERVER_PORT, "/ws/module?key=" + key);
+  char buffer[26];
+  strcpy_P(buffer, key);
+
+  char path[45];
+  strcpy(path, "/ws/module?key=");
+  strcat(path, buffer);
+
+  memset(buffer, '\0', sizeof(buffer));  // Clears the buffer
+
+  return websocketClient.connect(DOMAIN, 8080, path);
 }
 
 void resetData(){
@@ -481,7 +503,8 @@ void setupDateTime(){
     month_  = month(unix_epoch);
     year_   = year(unix_epoch);
 
-    RTCService.setupDS1307DateTime(DateTime(year_, month_, day_, hour_, minute_, second_));
+    DateTime newDateTime(year_, month_, day_, hour_, minute_, second_); 
+    RTCService.setupDS1307DateTime(newDateTime);
   }
 }
 //=======================================================================================
@@ -490,19 +513,21 @@ void setupDateTime(){
 
 //=====================================Main code=========================================
 void setup() {
+  ECHO("111: ");
+  ECHOLN(ESP.getFreeHeap());
+
   Serial.begin(9600);
-  Serial.println("Start");
-  delay(100);
+  delay(1);
 
   unsigned long lcdTimeout = 0;
   bool check = false;
 
   connectBuzzer();
-  delay(10);
+  delay(1);
   connectButton();
-  delay(50);
+  delay(1);
   connectLCD();
-  delay(10);
+  delay(1);
 
   clearLCD();
   printTextLCD("Setting up...", 0);
@@ -575,7 +600,10 @@ void setup() {
     lcdTimeout = millis();
   }
 
-  resetData();  
+  resetData();
+
+  // Setup certificate's fingerprint
+  //wifiClient->setFingerprint(fingerprint_sams_com);
 
   delay(50);
   printTextLCD("Setup done!!!", 1);
@@ -627,6 +655,7 @@ void handleConnectModuleMode(){
     }
   }
   else{
+    unsigned long limitRange = 4294907290;
     if(millis() > session->endTimeStamp && millis() < limitRange){
       websocketClient.send(String("Session cancelled ") + String(session->sessionID));
       delay(50);
@@ -745,7 +774,7 @@ void handleAttendanceMode(){
     uint16_t currentTime = getCurrentTimeInMinute();
     
     if(currentTime > endTime || currentTime < startTime){
-      ECHOLN("Slot end");
+      //ECHOLN("Slot end");
       endAttendanceSession();
       clearLCD();
       delay(1);
@@ -945,7 +974,7 @@ void handlePrepareSchedulesMode(){
   if(websocketClient.available()) {
     websocketClient.poll();
   }
-  delay(2000);
+  delay(1000);
   if(websocketClient.available()) {
     websocketClient.poll();
   }
@@ -1312,31 +1341,35 @@ int loadingData(uint8_t& total, uint8_t& loaded, uint16_t& totalFingers, uint16_
   int getSchedulesStatus = getSchedules(total);
   switch(getSchedulesStatus){
     case GET_FAIL:
-      ECHOLN("[loadingData] Get failed at getSchedule()");
+      //ECHOLN("[loadingData] Get failed at getSchedule()");
       return GET_FAIL;
       break;
     case INVALID_DATA:
-      ECHOLN("[loadingData] Get failed at getSchedule()");
+      //ECHOLN("[loadingData] Get failed at getSchedule()");
       return GET_FAIL;
       break;
     case GET_SUCCESS:
       break;
     default:
-      ECHOLN("[loadingData] Get failed at getSchedule()");
+      //("[loadingData] Get failed at getSchedule()");
       return UNDEFINED_ERROR;
       break;
   }
 
+  //Order and get first 4 schedule here
+  //...
+
   //uint16_t oldStoredModelId = 1;
   uint16_t oldStoredModelId = 1;
   uint16_t storeModelID = 1;
+
   for(Schedule& schedule : schedules){
-    if(getScheduleInformation(schedule, storeModelID, totalFingers) == GET_SUCCESS){
+    if(getScheduleInformation(schedule, storeModelID, totalFingers, false) == GET_SUCCESS){
       loaded++;
       printTextLCD("Loaded " + String(loaded) + " schedules", 1);
-  ECHOLN("Old: " + String(oldStoredModelId) + ", new: " + String(storeModelID));
+      //ECHOLN("Old: " + String(oldStoredModelId) + ", new: " + String(storeModelID));
       // Should update the state of preparation - uploaded finger of the current schedule
-      String updateStateUrl = "http://" + String(SERVER_IP) + "/api/Session/schedule-preparation/state-update";
+      String updateStateUrlPath = "http://" + String(DOMAIN) + "/api/Session/schedule-preparation/state-update";
       // http://34.81.223.233/api/Session/schedule-preparation/state-update
       JSONVar updateState;
       updateState["SessionId"] = sessionID;
@@ -1344,17 +1377,20 @@ int loadingData(uint8_t& total, uint8_t& loaded, uint16_t& totalFingers, uint16_
       updateState["ScheduleId"] = schedule.scheduleID;
 
       String payload = JSON.stringify(updateState);
-      http.begin(wifiClient, updateStateUrl);
+
+      WiFiClient wifiClient;
+      HTTPClient http;
+      http.begin(wifiClient, updateStateUrlPath);
       http.addHeader("Content-Type", "application/json");
       int httpCode = http.POST(payload);
 
-      payload.clear();
       http.end();
+      payload.clear();
       
       oldStoredModelId = storeModelID;
     }
   }
-  ECHOLN("Stored models: " + String(storeModelID - 1));
+  //ECHOLN("Stored models: " + String(storeModelID - 1));
   uploadedFingers = storeModelID - 1;
 
   if(websocketClient.available()) {
@@ -1371,26 +1407,26 @@ int getSchedules(uint8_t& totalSchedules) {
   if(session){
     currentDate = session->prepareDate.c_str();
   }
-  String url = "http://" + String(SERVER_IP) + "/api/Schedule?lecturerId=" + lecturerId + "&semesterId=" + semesterId + "&startDate=" + currentDate + "&endDate=" + currentDate + "&quantity=10";
+  String urlPath = "http://" + String(DOMAIN) + "/api/Schedule?lecturerId=" + lecturerId + "&semesterId=" + semesterId + "&startDate=" + currentDate + "&endDate=" + currentDate + "&quantity=10";
   //http://34.81.223.233/api/Schedule?lecturerId=a829c0b5-78dc-4194-a424-08dc8640e68a&quantity=10&semesterId=2&startDate=2024-07-07&endDate=2024-07-07
-  
-  ECHOLN(url);
 
-  http.begin(wifiClient, url);
+  WiFiClient wifiClient;
+  HTTPClient https;
+  https.begin(wifiClient, urlPath);
 
-  int httpCode = http.GET();
+  int httpCode = https.GET();
   if (httpCode != HTTP_CODE_OK){
-    ECHOLN("[getSchedules] Url: " + url);
-    ECHOLN("[getSchedules] HTTP is not OK: " + String(httpCode));
+    ECHOLN("[getSchedules] Url: " + urlPath);
+    ECHOLN("[getSchedules] HTTP is not OK: " + https.errorToString(httpCode));
     return GET_FAIL;
   }
 
-  String payload = http.getString();
+  const String& payload = https.getString();
 
   JSONVar scheduleDataArray = JSON.parse(payload);
   // Check whether if data is in correct format
   if(JSON.typeof(scheduleDataArray)!="array"){
-    ECHOLN("[getSchedules] Invalid data format: " + payload);
+    //ECHOLN("[getSchedules] Invalid data format: " + payload);
     return INVALID_DATA;
   }
 
@@ -1398,8 +1434,7 @@ int getSchedules(uint8_t& totalSchedules) {
     websocketClient.poll();
   }
 
-  http.end();
-  payload.clear();
+  https.end();
 
   // Load schedules information
   for(int i = 0; i < scheduleDataArray.length(); i++) {
@@ -1431,53 +1466,52 @@ int getSchedules(uint8_t& totalSchedules) {
 }
 
 bool getScheduleById(uint16_t scheduleId, uint16_t& totalFingers, uint16_t& uploadedFingers){
-  String url = "http://" + String(SERVER_IP) + "/api/Schedule/module/" + String(scheduleId);
-  //http://34.81.223.233/api/Schedule/81
-  //http://34.81.223.233/api/Schedule/module/870
+  //std::string domainStr = "sams-project.com";
+  std::string urlPath = "https://sams-project.com/api/Schedule/module/" + std::to_string(scheduleId);
 
-  http.begin(wifiClient, url);
+  WiFiClient wifiClient;
+  HTTPClient https;
+  https.begin(wifiClient, urlPath.c_str());
 
-  int httpCode = http.GET();
+
+  int httpCode = https.GET();
   if (httpCode != HTTP_CODE_OK){
-    ECHOLN("[getScheduleById] Url: " + url);
-    ECHOLN("[getScheduleById] HTTP is not OK: " + String(httpCode));
+    return false;
+  }
+  const String& payload = https.getString();
+  JSONVar resultData = JSON.parse(payload);
+
+  https.end();
+
+  // Check whether if data is in correct format
+  if(JSON.typeof(resultData)!="object"){
+    //ECHOLN("[getScheduleById] Invalid data format: " + payload);
     return false;
   }
 
-  String payload = http.getString();
-  JSONVar resultData = JSON.parse(payload);
+  JSONVar scheduleData = resultData["result"];
+
+  if(JSON.typeof(scheduleData)!="object"){
+    //ECHOLN("[getScheduleById] Invalid data format: " + payload);
+    return false;
+  }
 
   if(websocketClient.available()) {
     websocketClient.poll();
   }
 
-  http.end();
-  payload.clear();
-
-  // Check whether if data is in correct format
-  if(JSON.typeof(resultData)!="object"){
-    ECHOLN("[getScheduleById] Invalid data format: " + payload);
-    return false;
-  }
-
-  JSONVar scheduleData = resultData["result"];
-  if(JSON.typeof(scheduleData)!="object"){
-    ECHOLN("[getScheduleById] Invalid data format: " + payload);
-    return false;
-  }
-
   Schedule schedule;
   schedule.scheduleID = scheduleData["scheduleID"];
   schedule.classID = scheduleData["class"]["classID"];
-
   schedule.date = (const char*)scheduleData["date"];
   schedule.slotNumber = scheduleData["slot"]["slotNumber"];
   schedule.classCode = (const char*)scheduleData["class"]["classCode"];
-  //schedule.subjectCode = (const char*)scheduleData[i]["subjectCode"];
-  //schedule.roomName = (const char*)scheduleData[i]["roomName"];
   schedule.startTime = (const char*)scheduleData["slot"]["startTime"];
   schedule.endTime = (const char*)scheduleData["slot"]["endtime"];
   schedule.isStop = false;
+
+  //schedule.subjectCode = (const char*)scheduleData[i]["subjectCode"];
+  //schedule.roomName = (const char*)scheduleData[i]["roomName"];
     
   // Create struct for date, start time and end time
   strptime(schedule.date.c_str(), dateFormat, &schedule.dateStruct);
@@ -1488,8 +1522,13 @@ bool getScheduleById(uint16_t scheduleId, uint16_t& totalFingers, uint16_t& uplo
     websocketClient.poll();
   }
 
+  urlPath.clear();
+  scheduleData = JSONVar();
+  resultData = JSONVar();
+  delay(40);
+
   uint16_t storeModelID = 1;
-  int getInformationResult = getScheduleInformation(schedule, storeModelID, totalFingers);
+  int getInformationResult = getScheduleInformation(schedule, storeModelID, totalFingers, true);
   uploadedFingers = storeModelID - 1;
 
   if(getInformationResult == GET_SUCCESS){
@@ -1509,8 +1548,8 @@ bool getScheduleById(uint16_t scheduleId, uint16_t& totalFingers, uint16_t& uplo
         ECHOLN();
       }
     }
-    ECHOLN("");
-    ECHOLN("");
+    //ECHOLN("");
+    //ECHOLN("");
 
 
     return true;
@@ -1535,117 +1574,77 @@ void orderSchedules(){
   }
 }
 
-int getScheduleInformation(Schedule& schedule, uint16_t& storeModelID, uint16_t& totalFingers){
+int getScheduleInformation(Schedule& schedule, uint16_t& storeModelID, uint16_t& totalFingers, bool isHttps){
   int page = 1;
-  String baseUrl = "http://" + String(SERVER_IP) + "/api/Student/get-students-by-classId-v2?isModule=true&quantity=2&classID=" + String(schedule.classID);
+  std::string baseUrl;
   //http://34.81.223.233/api/Student/get-students-by-classId?classID=2&startPage=1&endPage=1&quantity=2&isModule=true
 
-  if(session && (appMode == PREPARE_ATTENDANCE_MODE || appMode == PREPARE_SCHEDULES_MODE)){
-    baseUrl = baseUrl + "&sessionId=" + String(session->sessionID);
+  if(isHttps){
+    baseUrl = "https://sams-project.com:444/api/Student/get-students-by-classId-v2?isModule=true&quantity=1&classID=" + std::to_string(schedule.classID);
+  }
+  else{
+    baseUrl = "http://sams-project.com/api/Student/get-students-by-classId-v2?isModule=true&quantity=1&classID=" + std::to_string(schedule.classID);
   }
 
-  ECHOLN(baseUrl);
+  if(session && (appMode == PREPARE_ATTENDANCE_MODE || appMode == PREPARE_SCHEDULES_MODE)){
+    baseUrl = baseUrl + "&sessionId=" + std::to_string(session->sessionID);
+  }
 
-  String calledUrl = "";
-  int httpCode = 0;
-  String payload = "";
+  std::unique_ptr<BearSSL::WiFiClientSecure> wifiClient(new BearSSL::WiFiClientSecure);
+  WiFiClient wifiClientNoSecure;
+  HTTPClient https;
 
   while(true){
-    ECHOLN("[getScheduleInformation] Get page: " + String(page));
-    calledUrl = "";
-    httpCode = 0;
+    std::string calledUrl = baseUrl + "&startPage=" + std::to_string(page) + "&endPage=" + std::to_string(page);
+    DynamicJsonDocument students(2150);
+    int httpCode;
+    
+    if(isHttps){
+      wifiClient->setFingerprint(fingerprint_sams_com);
+      wifiClient->setBufferSizes(2500, 256);
+      https.useHTTP10(true);
+      https.begin(*wifiClient, calledUrl.c_str());
+
+      httpCode = https.GET();
+      deserializeJson(students, https.getStream());
+
+      https.end();
+      wifiClient->stop();
+    }
+    else{
+      https.begin(wifiClientNoSecure, calledUrl.c_str());
+      httpCode = https.GET();
+      deserializeJson(students, https.getStream());
+      https.end();
+    }
 
     if(websocketClient.available()) {
       websocketClient.poll();
     }
 
-    calledUrl = baseUrl + "&startPage=" + String(page) + "&endPage=" + String(page);
-    http.begin(wifiClient, calledUrl);
-
-    httpCode = http.GET();
     if (httpCode != HTTP_CODE_OK){
-      ECHOLN("[getScheduleInformation] HTTP is not OK: " + String(httpCode));
-      //return GET_FAIL;
-      // Just ignore it
+      ECHOLN("[getScheduleInformation] HTTP is not OK: " + https.errorToString(httpCode));
       page++;
-      delay(100);
       continue;
     }
 
-    payload = http.getString();
-    JSONVar students = JSON.parse(payload);
-
-    http.end();
-
-    // if(JSON.typeof(students)!="array"){
-    //   ECHOLN("[getScheduleInformation] Invalid data format: " + payload);
-    //   ECHOLN("[getScheduleInformation] Called url: " + calledUrl);
-    //   ECHOLN();
-    //   //return INVALID_DATA;
-    //   // Just ignore it
-
-    //   // Lets call again here, maybe 3 times
-    //   bool checkOk = false;
-    //   for(int i = 0; i < 3; i++){
-    //     http.begin(wifiClient, calledUrl);
-    //     httpCode = http.GET();
-    //     if (httpCode == HTTP_CODE_OK){
-    //       payload = http.getString();
-    //       students = JSON.parse(payload);
-    //       if(JSON.typeof(students)=="array"){
-    //         checkOk = true;
-    //         http.end();
-    //         payload.clear();
-    //         delay(100);
-    //         break;
-    //       }
-    //     }
-    //     http.end();
-    //     payload.clear();
-    //     delay(300);
-    //   }
-
-    //   if(!checkOk){
-    //     ECHOLN("[getScheduleInformation] Again NOT OK");
-    //     page++;
-    //     delay(100);
-    //     continue;
-    //   }
-
-    //   // http.begin(wifiClient, calledUrl);
-    //   // httpCode = http.GET();
-    //   // if (httpCode != HTTP_CODE_OK){
-    //   //   page++;
-    //   //   delay(100);
-    //   //   continue;
-    //   // }
-
-    //   // payload = http.getString();
-    //   // students = JSON.parse(payload);
-    //   // http.end();
-      
-    //   // if(JSON.typeof(students)!="array"){
-    //   //   page++;
-    //   //   payload.clear();
-    //   //   delay(100);
-    //   //   continue;
-    //   // }
-
-    //   ECHOLN("[getScheduleInformation] Again OK");
-    // }
-
-    if(students.length() == 0){
+    if(students.size() == 0){
+      ECHOLN(F("[getScheduleInformation] Size of students array is 0"));
       break;
     }
 
-    for(int i = 0; i < students.length(); i++) {
+    if(websocketClient.available()) {
+      websocketClient.poll();
+    }
+
+    for(int i = 0; i < students.size(); i++) {
       // If student have finger informations, lets store it
-      if(JSON.typeof(students[i]["fingerprintTemplateData"])=="array" && students[i]["fingerprintTemplateData"].length() > 0){
+      if(students[i]["fingerprintTemplateData"].is<JsonArray>() && students[i]["fingerprintTemplateData"].size() > 0){
         Attendance attendance;
         attendance.scheduleID = schedule.scheduleID;
-        attendance.userID = (const char*)students[i]["userID"];
-        attendance.studentName = (const char*)students[i]["studentName"];
-        attendance.studentCode = (const char*)students[i]["studentCode"];
+        attendance.userID = students[i]["userID"].as<const char*>();
+        attendance.studentName = students[i]["studentName"].as<const char*>();
+        attendance.studentCode = students[i]["studentCode"].as<const char*>();
 
         // if there is a student information already added, so the fingerprint template also, but we still need to record that uploaded
         std::string userID = attendance.userID;
@@ -1660,11 +1659,11 @@ int getScheduleInformation(Schedule& schedule, uint16_t& storeModelID, uint16_t&
         else{
           StoredFingerprint storedFingerprint;
           storedFingerprint.userID = userID;
-          for(uint8_t fingerIndex = 0; fingerIndex < students[i]["fingerprintTemplateData"].length(); fingerIndex++){
-            totalFingers++;
-            bool uploadFingerStatus = FINGERPSensor.uploadFingerprintTemplate((const char*)students[i]["fingerprintTemplateData"][fingerIndex], storeModelID);
+          for(uint8_t fingerIndex = 0; fingerIndex < students[i]["fingerprintTemplateData"].size(); fingerIndex++){
+            ++totalFingers;
+            bool uploadFingerStatus = FINGERPSensor.uploadFingerprintTemplate(students[i]["fingerprintTemplateData"][fingerIndex].as<const char*>(), storeModelID);
             if(!uploadFingerStatus){
-              String classId = String(schedule.classID);
+              const std::string classId = std::to_string(schedule.classID);
               UploadFingerprintTemplateAgain(storeModelID, fingerIndex, storedFingerprint, attendance, classId);
             }
             else{
@@ -1672,8 +1671,8 @@ int getScheduleInformation(Schedule& schedule, uint16_t& storeModelID, uint16_t&
               storedFingerprint.storedFingerID.push_back(storeModelID);
               ++storeModelID;
             }
-            delay(1);
           }
+
           if(storedFingerprint.storedFingerID.size() > 0){
             storedFingerprints.push_back(storedFingerprint);
           }
@@ -1681,7 +1680,6 @@ int getScheduleInformation(Schedule& schedule, uint16_t& storeModelID, uint16_t&
         schedule.attendances.push_back(attendance);
       }
 
-      delay(1);
       if(websocketClient.available()) {
         websocketClient.poll();
       }
@@ -1692,12 +1690,8 @@ int getScheduleInformation(Schedule& schedule, uint16_t& storeModelID, uint16_t&
     if(websocketClient.available()) {
       websocketClient.poll();
     }
-
-    payload.clear();
-    delay(100);
+    delay(1);
   }
-
-  calledUrl = "";
 
   // Thêm cơ chế chạy lại những thằng lỗi
 
@@ -1800,18 +1794,23 @@ bool updateAttendanceStatus(const uint16_t& scheduleID, const std::string& userI
 
   //2024-06-11T16:29:24
   //http://35.221.168.89/api/Attendance/update-attendance-status?scheduleID=5&attendanceStatus=3&attendanceTime=2024-06-11T16%3A29%3A24&studentID=fa00c1a6-0a14-435c-a421-08dc8640e68a
-  String url = "http://" + String(SERVER_IP) + "/api/Attendance/update-attendance-status?attendanceStatus=1&scheduleID=" + String(scheduleID) + "&studentID=" + userID.c_str() + "&attendanceTime=" + dateTime;
+  String url = "https://" + String(DOMAIN) + "/api/Attendance/update-attendance-status?attendanceStatus=1&scheduleID=" + String(scheduleID) + "&studentID=" + userID.c_str() + "&attendanceTime=" + dateTime;
 
-  http.begin(wifiClient, url);
-  int httpCode = http.PUT("");
-  http.end();
+  std::unique_ptr<BearSSL::WiFiClientSecure> wifiClient(new BearSSL::WiFiClientSecure);
+  wifiClient->setFingerprint(fingerprint_sams_com);
+  HTTPClient https;
+  https.begin(*wifiClient, url);
+  int httpCode = https.PUT("");
+
+  https.end();
+  wifiClient->stop();
 
   if (httpCode != HTTP_CODE_OK){
     return false;
   }
 
-  String payload = http.getString();
-  ECHOLN("[updateAttendanceStatus] Put request payload: " + payload);
+  //String payload = https.getString();
+  //ECHOLN("[updateAttendanceStatus] Put request payload: " + payload);
 
   return true;
 }
@@ -1822,13 +1821,14 @@ void updateAttendanceStatusAgain(){
   }
 
   //http://35.221.168.89/api/Attendance/update-list-student-status
-  String url = "http://" + String(SERVER_IP) + "/api/Attendance/update-list-student-status";
+  String url = "https://" + String(DOMAIN) + "/api/Attendance/update-list-student-status";
 
   char buf[] = "YYYY-MM-DDThh:mm:ss";
 
   // Create a payload string
   JSONVar attendanceArray;
   uint8_t index = 0;
+
   for(Attended& item : unUploadedAttendedList){
     JSONVar attendance;
     attendance["ScheduleID"] = item.scheduleID;
@@ -1839,16 +1839,20 @@ void updateAttendanceStatusAgain(){
   }
   String payload = JSON.stringify(attendanceArray);
 
-  http.begin(wifiClient, url);
-  http.addHeader("Content-Type", "application/json");
-  int httpCode = http.PUT(payload);
+  std::unique_ptr<BearSSL::WiFiClientSecure> wifiClient(new BearSSL::WiFiClientSecure);
+  wifiClient->setFingerprint(fingerprint_sams_com);
+  HTTPClient https;
+  https.begin(*wifiClient, url);
+  https.addHeader("Content-Type", "application/json");
+  int httpCode = https.PUT(payload);
   if(httpCode == HTTP_CODE_OK){
     uploadedAttendedList.insert(uploadedAttendedList.end(), unUploadedAttendedList.begin(), unUploadedAttendedList.end());
     unUploadedAttendedList.clear(); // Makes it empty
   }
 
+  https.end();
+  wifiClient->stop();
   payload.clear();
-  http.end();
 }
 
 bool checkUpdateAttendanceStatus() {
@@ -1873,37 +1877,41 @@ void endAttendanceSession(){
 
 void onEventsCallback(WebsocketsEvent event, String data) {
     if(event == WebsocketsEvent::ConnectionOpened) {
-        ECHOLN("[Main][WebsocketEvent] Connnection Opened");
+        //ECHOLN("[Main][WebsocketEvent] Connnection Opened");
     } else if(event == WebsocketsEvent::ConnectionClosed) {
-        ECHOLN("[Main][WebsocketEvent] Connnection Closed");
+        //ECHOLN("[Main][WebsocketEvent] Connnection Closed");
     } else if(event == WebsocketsEvent::GotPing) {
-        ECHOLN("[Main][WebsocketEvent] Got a Ping!");
+        //ECHOLN("[Main][WebsocketEvent] Got a Ping!");
     } else if(event == WebsocketsEvent::GotPong) {
-        ECHOLN("[Main][WebsocketEvent] Got a Pong!");
+        //ECHOLN("[Main][WebsocketEvent] Got a Pong!");
     }
 }
 
 // Cơ chế dự phòng, upload lại 4 lần
-void UploadFingerprintTemplateAgain(uint16_t& storeModelID, uint8_t fingerIndex, StoredFingerprint& storedFingerprint, Attendance& attendance, String& classID){
+void UploadFingerprintTemplateAgain(uint16_t& storeModelID, uint8_t& fingerIndex, StoredFingerprint& storedFingerprint, Attendance& attendance, const std::string& classID){
+  ECHOLN(F("Upload fingerprint again state"));
+  std::string baseUrl = "http://sams-project.com/api/Student/get-students-by-classId-v2?isModule=true&classID=" + classID + "&userId=" + attendance.userID;
 
-  String baseUrl = "http://" + String(SERVER_IP) + "/api/Student/get-students-by-classId-v2?isModule=true&classID=" + classID + "&userId=" + attendance.userID.c_str();
-  //ECHOLN("[UploadFingerprintTemplateAgain] base url: " + baseUrl);
+  int num = 0;
+  WiFiClient client;
+  HTTPClient https;
+
   //http://34.81.223.233/api/Student/get-students-by-classId?classID=29&userId=b60b2e83-b6d3-4240-a422-08dc8640e68a&isModule=true
   for(uint8_t i = 0; i < 4; i++){
-    ECHOLN(String() + "[UploadFingerprintTemplateAgain] for " + attendance.studentName.c_str() + " at " + String(i + 1));
-
-    http.setTimeout(2000);
-    http.begin(wifiClient, baseUrl);
-    int httpCode = http.GET();
-    String payload = http.getString();
-    http.end();
-
+    https.begin(client, baseUrl.c_str());
+    int httpCode = https.GET();
+    JSONVar students = JSON.parse(https.getString());
+    https.end();
+    
     if (httpCode == HTTP_CODE_OK){
-      JSONVar students = JSON.parse(payload);
       if(JSON.typeof(students)=="array"){
+        ECHO(F("Get Oke: ")); ECHOLN(String(i));
         if(JSON.typeof(students[0]["fingerprintTemplateData"])=="array" && students[0]["fingerprintTemplateData"].length() > 0){
-          bool uploadFingerStatus = FINGERPSensor.uploadFingerprintTemplate((const char*)students[0]["fingerprintTemplateData"][fingerIndex], storeModelID);
+          ECHO(F("Get Oke: ")); ECHOLN(String(i));
+          bool uploadFingerStatus = FINGERPSensor.uploadFingerprintTemplate((const char*)students[i]["fingerprintTemplateData"][fingerIndex], storeModelID);
+          ECHO(F("Get Oke: ")); ECHO(String(uploadFingerStatus)); ECHOLN(String(i));
           if(uploadFingerStatus){
+            ECHO("Stored fingerprint id: "); ECHOLN(String(storeModelID));
             attendance.storedFingerID.push_back(storeModelID);
             storedFingerprint.storedFingerID.push_back(storeModelID);
             ++storeModelID;
@@ -1913,13 +1921,15 @@ void UploadFingerprintTemplateAgain(uint16_t& storeModelID, uint8_t fingerIndex,
       }
     }
 
-    payload.clear();
-    delay(50);
+    if(websocketClient.available()) {
+      websocketClient.poll();
+    }
+
+    delay(1);
   }
 
-  if(websocketClient.available()) {
-    websocketClient.poll();
-  }
+  ECHOLN(F("Done Upload fingerprint again state"));
+  delay(10);
 }
 
 bool syncingAttendanceData(uint16_t scheduleID){
@@ -1928,7 +1938,7 @@ bool syncingAttendanceData(uint16_t scheduleID){
   }
 
   //http://35.221.168.89/api/Attendance/update-list-student-status
-  String url = "http://" + String(SERVER_IP) + "/api/Attendance/update-list-student-status";
+  String url = "https://" + String(DOMAIN) + "/api/Attendance/update-list-student-status";
 
   char buf[] = "YYYY-MM-DDThh:mm:ss";
 
@@ -1960,9 +1970,12 @@ bool syncingAttendanceData(uint16_t scheduleID){
 
   String payload = JSON.stringify(attendanceArray);
 
-  http.begin(wifiClient, url);
-  http.addHeader("Content-Type", "application/json");
-  int httpCode = http.PUT(payload);
+  std::unique_ptr<BearSSL::WiFiClientSecure> wifiClient(new BearSSL::WiFiClientSecure);
+  wifiClient->setFingerprint(fingerprint_sams_com);
+  HTTPClient https;
+  https.begin(*wifiClient, url);
+  https.addHeader("Content-Type", "application/json");
+  int httpCode = https.PUT(payload);
 
   if(httpCode != HTTP_CODE_OK){
     return false;
@@ -1971,6 +1984,7 @@ bool syncingAttendanceData(uint16_t scheduleID){
   uploadedAttendedList.insert(uploadedAttendedList.end(), unUploadedAttendedList.begin(), unUploadedAttendedList.end());
   unUploadedAttendedList.clear(); // Makes it empty
   payload.clear();
-  http.end();
+  https.end();
+  wifiClient->stop();
   return true;
 }

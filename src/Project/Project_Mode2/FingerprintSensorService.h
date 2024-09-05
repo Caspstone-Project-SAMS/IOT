@@ -4,6 +4,7 @@
 #include <Adafruit_Fingerprint.h>
 #include "AppDebug.h"
 #include <string>
+#include <Arduino_JSON.h>
 
 #define FINGER_RX 0 //D3 in ESP8266 is GPIO0
 #define FINGER_TX 2 //D4 is GPIO2
@@ -19,13 +20,13 @@ class FingerprintSensorClass
     uint8_t image2Tz();
     uint8_t seachFinger();
     uint16_t getFingerID();
-    String getFingerprintTemplate();
-    bool uploadFingerprintTemplate(const std::string& fingerData, uint16_t storeModelID);
+    //String getFingerprintTemplate();
+    bool uploadFingerprintTemplate(const char* fingerData, uint16_t& storeModelID);
     uint8_t getFingerTemplateCount();
     uint8_t deleteFingerprint(uint8_t id);
     void emptyDatabase();
   private:
-    uint8_t convert_hex_to_binary(std::string hexString);
+    uint8_t convert_hex_to_binary(std::string& hexString);
 };
 
 extern FingerprintSensorClass FINGERPSensor;

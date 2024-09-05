@@ -1,6 +1,6 @@
 #include <ESP8266HTTPClient.h>
 #include <ArduinoWebsockets.h>
-#include <WiFiClientSecure.h>
+#include <WiFiClientSecureBearSSL.h>
 
 #include <Arduino_JSON.h>
 #include <string>
@@ -75,6 +75,7 @@ class RegisteringSession{
 
 //=========================Macro define=============================
 #define SERVER_IP "34.81.223.233"
+#define HTTPS_PORT 443
 #define WEBSOCKETS_SERVER_HOST "34.81.223.233"
 #define WEBSOCKETS_SERVER_PORT 443
 #define WEBSOCKETS_PROTOCOL "ws"
@@ -123,7 +124,6 @@ static const unsigned long intervalTimeCheckLastPing = 12000; // 12 seconds
 // Http Client
 WiFiClient wifiClient;
 HTTPClient http;
-WiFiClientSecure *client = new WiFiClientSecure;
 //================================
 
 
@@ -184,31 +184,8 @@ uint8_t connectionLifeTimeSeconds = 20;
 
 
 //================================ Certificate ===============================
-const char cert_Sama_Root_CA [] PROGMEM = R"CERT(
------BEGIN CERTIFICATE-----
-"MIIDeTCCAwCgAwIBAgISA9GKBnllTOahhUY/jC1mjgcRMAoGCCqGSM49BAMDMDIx
-"CzAJBgNVBAYTAlVTMRYwFAYDVQQKEw1MZXQncyBFbmNyeXB0MQswCQYDVQQDEwJF
-"NjAeFw0yNDA4MzEwODQ1MjFaFw0yNDExMjkwODQ1MjBaMBcxFTATBgNVBAMTDHNh
-"bXMtd2ViLmNvbTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABLU3CC0MO0UJBCwS
-"Un9ROG+5O5eMp1nHShy+QshKR4ZbolLoiWkV4hvy5vX6B4oC92IRKJBknhbZ8Kv2
-"7SZaRM6jggIPMIICCzAOBgNVHQ8BAf8EBAMCB4AwHQYDVR0lBBYwFAYIKwYBBQUH
-"AwEGCCsGAQUFBwMCMAwGA1UdEwEB/wQCMAAwHQYDVR0OBBYEFITMSBoTeHzQE/rF
-"xEnveYvOipKgMB8GA1UdIwQYMBaAFJMnRpgDqVFojpjWxEJI2yO/WJTSMFUGCCsG
-"AQUFBwEBBEkwRzAhBggrBgEFBQcwAYYVaHR0cDovL2U2Lm8ubGVuY3Iub3JnMCIG
-"CCsGAQUFBzAChhZodHRwOi8vZTYuaS5sZW5jci5vcmcvMBcGA1UdEQQQMA6CDHNh
-"bXMtd2ViLmNvbTATBgNVHSAEDDAKMAgGBmeBDAECATCCAQUGCisGAQQB1nkCBAIE
-"gfYEgfMA8QB3AD8XS0/XIkdYlB1lHIS+DRLtkDd/H4Vq68G/KIXs+GRuAAABkafR
-"0k0AAAQDAEgwRgIhAOhsdS8wTV1jBv7D+qcfZ3jUrtCWKu8TAUmS7UUpOFmnAiEA
-"2MCvqcZ/8rQka4b7LFNuHeIBP53ONYKvAozoI6G4RQMAdgAZmBBxCfDWUi4wgNKe
-"P2S7g24ozPkPUo7u385KPxa0ygAAAZGn0dKkAAAEAwBHMEUCIFsp9VjntwBRx7Pj
-"3ge6Sjw4xkxCbYmsuudnJXSHxbiCAiEA8yo8JTBzpNI4pB8rDrxNcVuS0vuWNbX7
-"wqXI8PQrydMwCgYIKoZIzj0EAwMDZwAwZAIwJyw+1I9WFSOUfdtZIgRgpsdlgVaw
-"LxMfNpX894y0O5LvqL6d3w52bVpgTrlDZJ0NAjALpitnReKflzFFZCTjVossRwAy
-"d4UPXD+QEukPPOHg7dYd3xOTKyp36DmPJrPLsy0=
-"-----END CERTIFICATE-----
-)CERT";
-
-X509List cert(cert_Sama_Root_CA);
+std::unique_ptr<BearSSL::WiFiClientSecure> client(new BearSSL::WiFiClientSecure);
+const char fingerprint_sams_com [] PROGMEM = "81:81:F7:68:CB:64:60:41:D7:37:11:4D:DE:53:B2:6C:2D:FC:9D:46";
 
 
 //========================Set up code==================================
@@ -444,7 +421,6 @@ void setup() {
 
   // Connect to wifi
   //Serial.print("Address of WiFi object (1): "); Serial.println(reinterpret_cast<uintptr_t>(&WiFi), HEX);
-  WifiService.setupWiFi(WiFi);
   int wifiStatus = WifiService.connect();
   while((lcdTimeout + 1000) > millis()){
     delay(200);
@@ -488,16 +464,43 @@ void setup() {
   resetData();
 
   // Set cert
-  ECHOLN("Cert here");
-  delay(2000);
-  client->setTrustAnchors(&cert);
-  http.begin(*client, "https://34.81.223.233/api/Hello");
-  int httpCode = http.GET();
-  String payloadData = http.getString();
-  http.end();
-  ECHOLN(String(httpCode));
-  ECHOLN(payloadData);
-  delay(6000);
+  if(WiFi.status() == WL_CONNECTED){
+    ECHOLN("Cert here");
+    delay(2000);
+
+    std::unique_ptr<BearSSL::WiFiClientSecure> client1(new BearSSL::WiFiClientSecure);
+  
+    bool checkTest = client1->setFingerprint(fingerprint_sams_com);
+
+    HTTPClient https;
+
+    if(checkTest){
+      ECHOLN("Check ok");
+    }
+    else {
+      ECHOLN("Check not ok");
+    }
+    // delay(1000);
+    // ECHOLN("Check connection");
+    // if (!client1->connect(SERVER_IP, HTTPS_PORT)) {
+    //   ECHOLN("Connection failed");
+    // }
+    // else{
+    //   ECHOLN("Connection Ok");
+    // }
+
+
+    https.begin(*client1, "34.81.223.233", 443, "/api/Hello");
+    int httpCode = https.GET();
+    String payloadData = https.getString();
+    ECHOLN(String(httpCode));
+    ECHOLN(payloadData);
+    https.end();
+    delay(6000);
+  }
+  else{
+    ECHOLN("No cert");
+  }
 
   delay(50);
   printTextLCD("Setup done!!!", 1);

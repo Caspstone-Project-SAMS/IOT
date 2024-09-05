@@ -1,5 +1,6 @@
 #include <ESP8266HTTPClient.h>
 #include <ArduinoWebsockets.h>
+#include <WiFiClientSecureBearSSL.h>
 
 #include <Arduino_JSON.h>
 #include <string>
@@ -7,6 +8,8 @@
 #include <WiFiUdp.h>
 #include <NTPClient.h>               
 #include <TimeLib.h>
+
+#include <avr/pgmspace.h>
 
 #include <ESP8266WebServer.h>
 #include "EEPRomService.h"
@@ -73,9 +76,11 @@ class RegisteringSession{
 
 
 //=========================Macro define=============================
+#define DOMAIN "sams-project.com"
 #define SERVER_IP "34.81.223.233"
 #define WEBSOCKETS_SERVER_HOST "34.81.223.233"
 #define WEBSOCKETS_SERVER_PORT 80
+#define SSL_PORT 443
 #define WEBSOCKETS_PROTOCOL "ws"
 
 // For upload fingerprint template state
@@ -120,15 +125,14 @@ static const unsigned long intervalTimeCheckLastPing = 12000; // 12 seconds
 
 
 // Http Client
-WiFiClient wifiClient;
 HTTPClient http;
 //================================
 
 
 // Fingerprint template registration session
-String studentCode;
-String studentID;
-int registrationNumber = 0;
+// String studentCode;
+// String studentID;
+//int registrationNumber = 0;
 RegisteringSession* session = nullptr;
 //================================
 
@@ -156,8 +160,8 @@ const unsigned char ACTIVE_BUZZER_PIN = 12;
 
 
 // 3 optional wifi
-String wifi1 = "FPTU_Library";
-String pass1 = "12345678";
+// String wifi1 = "FPTU_Library";
+// String pass1 = "12345678";
 
 // String wifi2 = "oplus_co_apcnzr";
 // String pass2 = "vhhd3382";
@@ -167,18 +171,20 @@ String pass1 = "12345678";
 
 
 
-String key = "I3ZbMRjf0lfag1uSJzuDKtz8J";
+const char key[] PROGMEM = "I3ZbMRjf0lfag1uSJzuDKtz8J";
 
 bool printConnectingMode = false;
 unsigned long limitRange = 4294907290;
-
-//String checkInternet = "https://www.google.com/";
 
 
 //============================ Configuration =============================
 bool connectionSound = true;
 uint16_t connectionSoundDurationMs = 400;
 uint8_t connectionLifeTimeSeconds = 20;
+
+//================================ TLS/SSL ================================
+const char fingerprint_sams_com [] PROGMEM = "DC:19:DE:0B:D0:79:11:E4:BE:75:BE:4F:BD:FC:B9:DE:D9:0A:E7:4F";
+std::unique_ptr<BearSSL::WiFiClientSecure> wifiClient(new BearSSL::WiFiClientSecure);
 
 
 
@@ -342,8 +348,16 @@ bool connectWebSocket() {
       ECHOLN("Does not found anything");
     }
   });
+  char buffer[26];
+  strcpy_P(buffer, key);
 
-  return websocketClient.connect(WEBSOCKETS_SERVER_HOST, WEBSOCKETS_SERVER_PORT, "/ws/module?key=" + key);
+  char path[45];
+  strcpy(path, "/ws/module?key=");
+  strcat(path, buffer);
+
+  memset(buffer, '\0', sizeof(buffer));  // Clears the buffer
+  
+  return websocketClient.connect(DOMAIN, 8080, path);
 }
 
 void resetData(){
@@ -457,6 +471,9 @@ void setup() {
   }
   
   resetData();
+  
+  // Setup certificate's fingerprint
+  wifiClient->setFingerprint(fingerprint_sams_com);
 
   delay(50);
   printTextLCD("Setup done!!!", 1);
@@ -527,10 +544,6 @@ void handleSetUpMode(){
 
 void handleNormalMode(){
   if(!WifiService.checkWifi()){
-    if(reconnectWifi3Times()){
-      return;
-    }
-
     printTextLCD("Connection failed", 0);
     printTextLCD("Connect new wifi", 1);
     while(appMode != SERVER_MODE){
@@ -1217,7 +1230,7 @@ int uploadFingerprintTemplate(String fingerprintTemplate){
 
   http.setTimeout(2000);
   delay(1);
-  http.begin(wifiClient, "http://" SERVER_IP "/api/Fingerprint");
+  http.begin(*wifiClient, DOMAIN, SSL_PORT, "/api/Fingerprint");
   http.addHeader("Content-Type", "application/json");
   int httpCode = http.POST(payload);
   String payloadData = http.getString();
@@ -1252,7 +1265,7 @@ int uploadUpdatedFingerprintTemplate(String fingerprintTemplate, uint16_t finger
 
   http.setTimeout(2000);
   delay(1);
-  http.begin(wifiClient, "http://" SERVER_IP "/api/Fingerprint/update");
+  http.begin(*wifiClient, DOMAIN, SSL_PORT, "/api/Fingerprint/update");
   http.addHeader("Content-Type", "application/json");
   int httpCode = http.POST(payload);
   String payloadData = http.getString();
@@ -1268,58 +1281,6 @@ int uploadUpdatedFingerprintTemplate(String fingerprintTemplate, uint16_t finger
   }
 
   return UPLOAD_SUCCESS;
-}
-
-bool reconnectWifi3Times(){
-  printTextLCD("Reconnect wifi", 0);
-  printTextLCD("Wifi: default", 1);
-
-  if(WifiService.connect() == CONNECT_OK){
-    if(checkInternet()){
-      return true;
-    }
-  }
-
-  if(wifi1 != ""){
-    printTextLCD("Wifi: Option 1", 1);
-    if(WifiService.connect(wifi1, pass1) == CONNECT_OK){
-      if(checkInternet()){
-        return true;
-      }
-    }
-  }
-
-  // if(wifi2 != ""){
-  //   printTextLCD("Wifi: Option 2", 1);
-  //   if(WifiService.connect(wifi2, pass2) == CONNECT_OK){
-  //     if(checkInternet()){
-  //       return true;
-  //     }
-  //   }
-  // }
-
-  // if(wifi3 != ""){
-  //   printTextLCD("Wifi: Option 3", 1);
-  //   if(WifiService.connect(wifi3, pass3) == CONNECT_OK){
-  //     if(checkInternet()){
-  //       return true;
-  //     }
-  //   }
-  // }
-
-  return false;
-}
-
-bool checkInternet(){
-  http.setTimeout(2000);
-  http.begin(wifiClient, "https://www.google.com/");
-  int httpCode = http.GET();
-  http.end();
-
-  if (httpCode == HTTP_CODE_OK){
-    return true;
-  }
-  return false;
 }
 
 // bool checkReceiveCustomPing(){
