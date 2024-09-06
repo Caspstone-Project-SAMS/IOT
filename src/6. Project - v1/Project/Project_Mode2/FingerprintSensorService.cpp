@@ -155,8 +155,6 @@ bool FingerprintSensorClass::uploadFingerprintTemplate(const char* fingerData, u
     fingerTemplate[i] = convert_hex_to_binary(hexPairString);
   }
 
-  ECHOLN(" **");
-
   if(finger.write_template_to_sensor(TEMPLATE_BUF_SIZE,fingerTemplate)){
     if(finger.storeModel(storeModelID) == FINGERPRINT_OK){
       return true;

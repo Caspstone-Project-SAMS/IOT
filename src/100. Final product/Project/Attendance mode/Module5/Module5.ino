@@ -220,8 +220,8 @@ static const unsigned long updateAttendanceStatusIntervalTime = 15000; //15 seco
 //=======================================================================================
 
 
-const char key[] PROGMEM = "gzqzg4cbIp0dUAEHsVSvRDtgg";
-//const char key[] PROGMEM = "xSJ6nDkyRcjYn81hPy5H9fRZg";
+//const char key[] PROGMEM = "gzqzg4cbIp0dUAEHsVSvRDtgg";
+const char key[] PROGMEM = "xSJ6nDkyRcjYn81hPy5H9fRZg";
 
 bool printConnectingMode = false;
 
@@ -242,6 +242,8 @@ uint8_t attendanceDurationMinutes = 0;
 
 //======================================== TLS/SSL ==================================
 const char fingerprint_sams_com [] PROGMEM = "DC:19:DE:0B:D0:79:11:E4:BE:75:BE:4F:BD:FC:B9:DE:D9:0A:E7:4F";
+// std::unique_ptr<BearSSL::WiFiClientSecure> secureWifiClient(new BearSSL::WiFiClientSecure);
+// HTTPClient httpss;
 
 
 
@@ -513,11 +515,11 @@ void setupDateTime(){
 
 //=====================================Main code=========================================
 void setup() {
-  ECHO("111: ");
-  ECHOLN(ESP.getFreeHeap());
-
   Serial.begin(9600);
   delay(1);
+
+  ECHO("000: ");
+  ECHOLN(ESP.getFreeHeap());
 
   unsigned long lcdTimeout = 0;
   bool check = false;
@@ -603,7 +605,7 @@ void setup() {
   resetData();
 
   // Setup certificate's fingerprint
-  //wifiClient->setFingerprint(fingerprint_sams_com);
+  //secureWifiClient->setFingerprint(fingerprint_sams_com);
 
   delay(50);
   printTextLCD("Setup done!!!", 1);
@@ -1356,12 +1358,15 @@ int loadingData(uint8_t& total, uint8_t& loaded, uint16_t& totalFingers, uint16_
       break;
   }
 
-  //Order and get first 4 schedule here
+  //Order and get first 4 schedules here
   //...
 
   //uint16_t oldStoredModelId = 1;
   uint16_t oldStoredModelId = 1;
   uint16_t storeModelID = 1;
+
+  WiFiClient wifiClient;
+  HTTPClient http;
 
   for(Schedule& schedule : schedules){
     if(getScheduleInformation(schedule, storeModelID, totalFingers, false) == GET_SUCCESS){
@@ -1378,8 +1383,6 @@ int loadingData(uint8_t& total, uint8_t& loaded, uint16_t& totalFingers, uint16_
 
       String payload = JSON.stringify(updateState);
 
-      WiFiClient wifiClient;
-      HTTPClient http;
       http.begin(wifiClient, updateStateUrlPath);
       http.addHeader("Content-Type", "application/json");
       int httpCode = http.POST(payload);
@@ -1396,6 +1399,21 @@ int loadingData(uint8_t& total, uint8_t& loaded, uint16_t& totalFingers, uint16_
   if(websocketClient.available()) {
     websocketClient.poll();
   }
+
+  ECHOLN("");
+  ECHOLN("");
+  ECHOLN("Finger Id: " + String(storeModelID));
+    ECHOLN("Stored fingers: " + String(storedFingerprints.size()));
+    ECHOLN("Schedules: " + String(schedules.size()));
+    for(Schedule& schedule : schedules){
+      ECHOLN(String("Schedule of ") + schedule.classCode.c_str() + " has " + String(schedule.attendances.size()) + " attendances");
+      for(Attendance& attendance : schedule.attendances){
+        for(uint16_t fingerId : attendance.storedFingerID){
+          ECHO(String(fingerId));
+        }
+        ECHOLN();
+      }
+    }
 
   // Make a notification about the status of receiving schedules
   // Call notification API here
@@ -1467,7 +1485,7 @@ int getSchedules(uint8_t& totalSchedules) {
 
 bool getScheduleById(uint16_t scheduleId, uint16_t& totalFingers, uint16_t& uploadedFingers){
   //std::string domainStr = "sams-project.com";
-  std::string urlPath = "https://sams-project.com/api/Schedule/module/" + std::to_string(scheduleId);
+  std::string urlPath = "http://sams-project.com/api/Schedule/module/" + std::to_string(scheduleId);
 
   WiFiClient wifiClient;
   HTTPClient https;
@@ -1525,7 +1543,6 @@ bool getScheduleById(uint16_t scheduleId, uint16_t& totalFingers, uint16_t& uplo
   urlPath.clear();
   scheduleData = JSONVar();
   resultData = JSONVar();
-  delay(40);
 
   uint16_t storeModelID = 1;
   int getInformationResult = getScheduleInformation(schedule, storeModelID, totalFingers, true);
@@ -1548,8 +1565,6 @@ bool getScheduleById(uint16_t scheduleId, uint16_t& totalFingers, uint16_t& uplo
         ECHOLN();
       }
     }
-    //ECHOLN("");
-    //ECHOLN("");
 
 
     return true;
@@ -1593,12 +1608,15 @@ int getScheduleInformation(Schedule& schedule, uint16_t& storeModelID, uint16_t&
   std::unique_ptr<BearSSL::WiFiClientSecure> wifiClient(new BearSSL::WiFiClientSecure);
   WiFiClient wifiClientNoSecure;
   HTTPClient https;
+  int httpCode;
 
   while(true){
+    ECHO("111: ");
+    ECHOLN(ESP.getFreeHeap());
+  
     std::string calledUrl = baseUrl + "&startPage=" + std::to_string(page) + "&endPage=" + std::to_string(page);
-    DynamicJsonDocument students(2150);
-    int httpCode;
-    
+    DynamicJsonDocument students(2300);
+
     if(isHttps){
       wifiClient->setFingerprint(fingerprint_sams_com);
       wifiClient->setBufferSizes(2500, 256);
@@ -1785,19 +1803,19 @@ bool updateAttendanceStatus(const uint16_t& scheduleID, const std::string& userI
   //=====================================
   char buf1[] = "YYYY-MM-DD hh:mm:ss";
   String dateTime1 = attendedTime.toString(buf1);
-  Serial.println(dateTime1);
+  ECHOLN(dateTime1);
   //=====================================
 
   if(!WifiService.checkWifi()) {
     return false;
   }
-
   //2024-06-11T16:29:24
   //http://35.221.168.89/api/Attendance/update-attendance-status?scheduleID=5&attendanceStatus=3&attendanceTime=2024-06-11T16%3A29%3A24&studentID=fa00c1a6-0a14-435c-a421-08dc8640e68a
   String url = "https://" + String(DOMAIN) + "/api/Attendance/update-attendance-status?attendanceStatus=1&scheduleID=" + String(scheduleID) + "&studentID=" + userID.c_str() + "&attendanceTime=" + dateTime;
 
   std::unique_ptr<BearSSL::WiFiClientSecure> wifiClient(new BearSSL::WiFiClientSecure);
   wifiClient->setFingerprint(fingerprint_sams_com);
+  wifiClient->setBufferSizes(250, 512);
   HTTPClient https;
   https.begin(*wifiClient, url);
   int httpCode = https.PUT("");
@@ -1806,9 +1824,9 @@ bool updateAttendanceStatus(const uint16_t& scheduleID, const std::string& userI
   wifiClient->stop();
 
   if (httpCode != HTTP_CODE_OK){
+    ECHO("[updateAttendanceStatus] Update failed: "); ECHOLN(https.errorToString(httpCode));
     return false;
   }
-
   //String payload = https.getString();
   //ECHOLN("[updateAttendanceStatus] Put request payload: " + payload);
 
@@ -1820,15 +1838,9 @@ void updateAttendanceStatusAgain(){
     return;
   }
 
-  //http://35.221.168.89/api/Attendance/update-list-student-status
-  String url = "https://" + String(DOMAIN) + "/api/Attendance/update-list-student-status";
-
   char buf[] = "YYYY-MM-DDThh:mm:ss";
-
-  // Create a payload string
   JSONVar attendanceArray;
   uint8_t index = 0;
-
   for(Attended& item : unUploadedAttendedList){
     JSONVar attendance;
     attendance["ScheduleID"] = item.scheduleID;
@@ -1839,13 +1851,19 @@ void updateAttendanceStatusAgain(){
   }
   String payload = JSON.stringify(attendanceArray);
 
+  //http://35.221.168.89/api/Attendance/update-list-student-status
+  String url = "https://" + String(DOMAIN) + "/api/Attendance/update-list-student-status";
+
   std::unique_ptr<BearSSL::WiFiClientSecure> wifiClient(new BearSSL::WiFiClientSecure);
   wifiClient->setFingerprint(fingerprint_sams_com);
+  wifiClient->setBufferSizes(200, payload.length() + 100);
   HTTPClient https;
+  https.addHeader("Content-Type", "application/json");
   https.begin(*wifiClient, url);
   https.addHeader("Content-Type", "application/json");
   int httpCode = https.PUT(payload);
   if(httpCode == HTTP_CODE_OK){
+    ECHO("Ok 1");
     uploadedAttendedList.insert(uploadedAttendedList.end(), unUploadedAttendedList.begin(), unUploadedAttendedList.end());
     unUploadedAttendedList.clear(); // Makes it empty
   }
@@ -1887,7 +1905,7 @@ void onEventsCallback(WebsocketsEvent event, String data) {
     }
 }
 
-// Cơ chế dự phòng, upload lại 4 lần
+// Cơ chế dự phòng, upload lại 3 lần
 void UploadFingerprintTemplateAgain(uint16_t& storeModelID, uint8_t& fingerIndex, StoredFingerprint& storedFingerprint, Attendance& attendance, const std::string& classID){
   ECHOLN(F("Upload fingerprint again state"));
   std::string baseUrl = "http://sams-project.com/api/Student/get-students-by-classId-v2?isModule=true&classID=" + classID + "&userId=" + attendance.userID;
@@ -1897,7 +1915,7 @@ void UploadFingerprintTemplateAgain(uint16_t& storeModelID, uint8_t& fingerIndex
   HTTPClient https;
 
   //http://34.81.223.233/api/Student/get-students-by-classId?classID=29&userId=b60b2e83-b6d3-4240-a422-08dc8640e68a&isModule=true
-  for(uint8_t i = 0; i < 4; i++){
+  for(uint8_t i = 0; i < 3; i++){
     https.begin(client, baseUrl.c_str());
     int httpCode = https.GET();
     JSONVar students = JSON.parse(https.getString());
@@ -1905,10 +1923,9 @@ void UploadFingerprintTemplateAgain(uint16_t& storeModelID, uint8_t& fingerIndex
     
     if (httpCode == HTTP_CODE_OK){
       if(JSON.typeof(students)=="array"){
-        ECHO(F("Get Oke: ")); ECHOLN(String(i));
         if(JSON.typeof(students[0]["fingerprintTemplateData"])=="array" && students[0]["fingerprintTemplateData"].length() > 0){
           ECHO(F("Get Oke: ")); ECHOLN(String(i));
-          bool uploadFingerStatus = FINGERPSensor.uploadFingerprintTemplate((const char*)students[i]["fingerprintTemplateData"][fingerIndex], storeModelID);
+          bool uploadFingerStatus = FINGERPSensor.uploadFingerprintTemplate((const char*)students[0]["fingerprintTemplateData"][fingerIndex], storeModelID);
           ECHO(F("Get Oke: ")); ECHO(String(uploadFingerStatus)); ECHOLN(String(i));
           if(uploadFingerStatus){
             ECHO("Stored fingerprint id: "); ECHOLN(String(storeModelID));
@@ -1924,12 +1941,9 @@ void UploadFingerprintTemplateAgain(uint16_t& storeModelID, uint8_t& fingerIndex
     if(websocketClient.available()) {
       websocketClient.poll();
     }
-
     delay(1);
   }
-
-  ECHOLN(F("Done Upload fingerprint again state"));
-  delay(10);
+  delay(1);
 }
 
 bool syncingAttendanceData(uint16_t scheduleID){
@@ -1965,26 +1979,39 @@ bool syncingAttendanceData(uint16_t scheduleID){
   }
 
   if(attendanceArray.length() <= 0){
+    ECHOLN("Sync 1");
     return true;
   }
 
   String payload = JSON.stringify(attendanceArray);
 
   std::unique_ptr<BearSSL::WiFiClientSecure> wifiClient(new BearSSL::WiFiClientSecure);
-  wifiClient->setFingerprint(fingerprint_sams_com);
   HTTPClient https;
+  wifiClient->setFingerprint(fingerprint_sams_com);
+  wifiClient->setBufferSizes(300, payload.length() + 100);
+  https.addHeader("Content-Type", "application/json");
   https.begin(*wifiClient, url);
   https.addHeader("Content-Type", "application/json");
+
   int httpCode = https.PUT(payload);
 
   if(httpCode != HTTP_CODE_OK){
+    ECHO("[syncingAttendanceData] Update failed: "); ECHOLN(https.errorToString(httpCode));
+    ECHOLN("Payload: " + payload);
+    ECHOLN("Url: " + url);
+    ECHOLN("Response: " + https.getString());
+    ECHOLN("Status code: " + String(httpCode));
     return false;
   }
+
+  ECHOLN("Sync 2");
 
   uploadedAttendedList.insert(uploadedAttendedList.end(), unUploadedAttendedList.begin(), unUploadedAttendedList.end());
   unUploadedAttendedList.clear(); // Makes it empty
   payload.clear();
   https.end();
   wifiClient->stop();
+
+  ECHOLN("Sync 3");
   return true;
 }
