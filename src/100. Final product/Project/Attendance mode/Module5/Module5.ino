@@ -142,7 +142,7 @@ class PreparingAttendanceSession{
 // Other datas
 String content;
 String lecturerId = "a829c0b5-78dc-4194-a424-08dc8640e68a";
-String semesterId = "5";
+//String semesterId = "5";
 //==================================
 
 
@@ -1425,7 +1425,8 @@ int getSchedules(uint8_t& totalSchedules) {
   if(session){
     currentDate = session->prepareDate.c_str();
   }
-  String urlPath = "http://" + String(DOMAIN) + "/api/Schedule?lecturerId=" + lecturerId + "&semesterId=" + semesterId + "&startDate=" + currentDate + "&endDate=" + currentDate + "&quantity=10";
+  String urlPath = "http://" + String(DOMAIN) + "/api/Schedule?lecturerId=" + lecturerId + "&startDate=" + currentDate + "&endDate=" + currentDate + "&quantity=10";
+  //"&semesterId=" + semesterId +
   //http://34.81.223.233/api/Schedule?lecturerId=a829c0b5-78dc-4194-a424-08dc8640e68a&quantity=10&semesterId=2&startDate=2024-07-07&endDate=2024-07-07
 
   WiFiClient wifiClient;
@@ -1455,6 +1456,11 @@ int getSchedules(uint8_t& totalSchedules) {
   https.end();
 
   // Load schedules information
+  // Just get first 4 schedules
+  int schedulesCount = scheduleDataArray.length();
+  if(schedulesCount > 4){
+    schedulesCount = 4;
+  }
   for(int i = 0; i < scheduleDataArray.length(); i++) {
     if(JSON.typeof(scheduleDataArray[i])=="object"){
       Schedule schedule;
