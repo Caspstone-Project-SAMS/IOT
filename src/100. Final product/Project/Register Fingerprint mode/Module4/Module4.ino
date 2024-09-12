@@ -323,13 +323,14 @@ bool connectWebSocket() {
       else if(event == "SetupDateTime"){
         String updatedDateTime = receiveData["UpdatedDateTime"];
         // Setup new DateTime
-        int year = updatedDateTime.substring(0, 3).toInt();
-        int month = updatedDateTime.substring(5, 6).toInt();
-        int day = updatedDateTime.substring(8, 9).toInt();
-        int hour = updatedDateTime.substring(11, 12).toInt();
-        int min = updatedDateTime.substring(14, 15).toInt();
-        int sec = updatedDateTime.substring(17, 18).toInt();
-        RTCService.setupDS1307DateTime(DateTime(year, month, day, hour, min, sec));
+        int year = updatedDateTime.substring(0, 4).toInt();
+        int month = updatedDateTime.substring(5, 7).toInt();
+        int day = updatedDateTime.substring(8, 10).toInt();
+        int hour = updatedDateTime.substring(11, 13).toInt();
+        int min = updatedDateTime.substring(14, 16).toInt();
+        int sec = updatedDateTime.substring(17, 19).toInt();
+        DateTime newDateTime(year, month, day, hour, min, sec);
+        RTCService.setupDS1307DateTime(newDateTime);
       }
     }
     else if(message.isBinary()){

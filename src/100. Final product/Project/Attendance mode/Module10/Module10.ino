@@ -1604,7 +1604,7 @@ int getScheduleInformation(Schedule& schedule, uint16_t& storeModelID, uint16_t&
     baseUrl = "https://sams-project.com:444/api/Student/get-students-by-classId-v2?isModule=true&quantity=1&classID=" + std::to_string(schedule.classID);
   }
   else{
-    baseUrl = "http://sams-project.com/api/Student/get-students-by-classId-v2?isModule=true&quantity=1&classID=" + std::to_string(schedule.classID);
+    baseUrl = "http://sams-project.com/api/Student/get-students-by-classId-v2?isModule=true&quantity=2&classID=" + std::to_string(schedule.classID);
   }
 
   if(session && (appMode == PREPARE_ATTENDANCE_MODE || appMode == PREPARE_SCHEDULES_MODE)){
@@ -1621,24 +1621,28 @@ int getScheduleInformation(Schedule& schedule, uint16_t& storeModelID, uint16_t&
     ECHOLN(ESP.getFreeHeap());
   
     std::string calledUrl = baseUrl + "&startPage=" + std::to_string(page) + "&endPage=" + std::to_string(page);
-    DynamicJsonDocument students(2300);
+    DynamicJsonDocument* students;
 
     if(isHttps){
+      students = new DynamicJsonDocument(2400);
+
       wifiClient->setFingerprint(fingerprint_sams_com);
       wifiClient->setBufferSizes(2500, 256);
       https.useHTTP10(true);
       https.begin(*wifiClient, calledUrl.c_str());
 
       httpCode = https.GET();
-      deserializeJson(students, https.getStream());
+      deserializeJson(*students, https.getStream());
 
       https.end();
       wifiClient->stop();
     }
     else{
+      students = new DynamicJsonDocument(4600);
+
       https.begin(wifiClientNoSecure, calledUrl.c_str());
       httpCode = https.GET();
-      deserializeJson(students, https.getStream());
+      deserializeJson(*students, https.getStream());
       https.end();
     }
 
@@ -1652,7 +1656,7 @@ int getScheduleInformation(Schedule& schedule, uint16_t& storeModelID, uint16_t&
       continue;
     }
 
-    if(students.size() == 0){
+    if(students->size() == 0){
       ECHOLN(F("[getScheduleInformation] Size of students array is 0"));
       break;
     }
@@ -1661,14 +1665,14 @@ int getScheduleInformation(Schedule& schedule, uint16_t& storeModelID, uint16_t&
       websocketClient.poll();
     }
 
-    for(int i = 0; i < students.size(); i++) {
+    for(int i = 0; i < students->size(); i++) {
       // If student have finger informations, lets store it
-      if(students[i]["fingerprintTemplateData"].is<JsonArray>() && students[i]["fingerprintTemplateData"].size() > 0){
+      if((*students)[i]["fingerprintTemplateData"].is<JsonArray>() && (*students)[i]["fingerprintTemplateData"].size() > 0){
         Attendance attendance;
         attendance.scheduleID = schedule.scheduleID;
-        attendance.userID = students[i]["userID"].as<const char*>();
-        attendance.studentName = students[i]["studentName"].as<const char*>();
-        attendance.studentCode = students[i]["studentCode"].as<const char*>();
+        attendance.userID = (*students)[i]["userID"].as<const char*>();
+        attendance.studentName = (*students)[i]["studentName"].as<const char*>();
+        attendance.studentCode = (*students)[i]["studentCode"].as<const char*>();
 
         // if there is a student information already added, so the fingerprint template also, but we still need to record that uploaded
         std::string userID = attendance.userID;
@@ -1683,9 +1687,9 @@ int getScheduleInformation(Schedule& schedule, uint16_t& storeModelID, uint16_t&
         else{
           StoredFingerprint storedFingerprint;
           storedFingerprint.userID = userID;
-          for(uint8_t fingerIndex = 0; fingerIndex < students[i]["fingerprintTemplateData"].size(); fingerIndex++){
+          for(uint8_t fingerIndex = 0; fingerIndex < (*students)[i]["fingerprintTemplateData"].size(); fingerIndex++){
             ++totalFingers;
-            bool uploadFingerStatus = FINGERPSensor.uploadFingerprintTemplate(students[i]["fingerprintTemplateData"][fingerIndex].as<const char*>(), storeModelID);
+            bool uploadFingerStatus = FINGERPSensor.uploadFingerprintTemplate((*students)[i]["fingerprintTemplateData"][fingerIndex].as<const char*>(), storeModelID);
             if(!uploadFingerStatus){
               const std::string classId = std::to_string(schedule.classID);
               UploadFingerprintTemplateAgain(storeModelID, fingerIndex, storedFingerprint, attendance, classId);
@@ -1710,6 +1714,8 @@ int getScheduleInformation(Schedule& schedule, uint16_t& storeModelID, uint16_t&
     }
 
     page++;
+    delete students;
+    students = nullptr;
 
     if(websocketClient.available()) {
       websocketClient.poll();
