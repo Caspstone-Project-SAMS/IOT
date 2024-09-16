@@ -7,7 +7,7 @@
 #include "AppDebug.h"
 #include "HttpServerH.h"
 
-#define WIFI_AP_SSID "BE-CA"
+#define WIFI_AP_SSID "SA-10"
 #define WIFI_AP_PASSWORD "1234567890"
 
 #define CONNECT_OK (1)

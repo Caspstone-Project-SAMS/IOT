@@ -548,8 +548,11 @@ void handleNormalMode(){
     printTextLCD("Connection failed", 0);
     printTextLCD("Connect new wifi", 1);
     while(appMode != SERVER_MODE){
+      if(WifiService.checkWifi()){
+        break;
+      }
       checkModeReset();
-      delay(50);
+      delay(10);
     }
     return;
   }
@@ -634,8 +637,12 @@ void handleRegistrationMode(){
     printTextLCD("Connection failed", 0);
     printTextLCD("Connect new wifi", 1);
     while(appMode != SERVER_MODE){
+      if(WifiService.checkWifi()){
+        break;
+      }
+
       checkModeReset();
-      delay(50);
+      delay(10);
     }
     return;
   }
@@ -671,6 +678,30 @@ void handleRegistrationMode(){
     if(websocketClient.available()) {
       websocketClient.poll();
     }
+
+    if(checkWebsocket()){
+      if(!websocketClient.available(true)){
+        printTextLCD("Websocket falied", 0);
+        printTextLCD("Reconnecting...", 1);
+        delay(500);
+        uint8_t c = 1;
+        while(c <= 5){
+          printTextLCD("Reconnect: " + String(c), 1);
+          unsigned long lcdTimeout = millis();
+          if(connectWebSocket()){
+            while((lcdTimeout + 500) > millis()){
+              delay(500);
+            }
+            printTextLCD("Connect successfully", 1);
+            break;
+          }
+          c++;
+        }
+        delay(500);
+        clearLCD();
+      }
+    }
+
     if(appMode != REGISTRATION_MODE){
       break;
     }
@@ -697,6 +728,30 @@ void handleRegistrationMode(){
     if(websocketClient.available()) {
       websocketClient.poll();
     }
+
+    if(checkWebsocket()){
+      if(!websocketClient.available(true)){
+        printTextLCD("Websocket falied", 0);
+        printTextLCD("Reconnecting...", 1);
+        delay(500);
+        uint8_t c = 1;
+        while(c <= 5){
+          printTextLCD("Reconnect: " + String(c), 1);
+          unsigned long lcdTimeout = millis();
+          if(connectWebSocket()){
+            while((lcdTimeout + 500) > millis()){
+              delay(500);
+            }
+            printTextLCD("Connect successfully", 1);
+            break;
+          }
+          c++;
+        }
+        delay(500);
+        clearLCD();
+      }
+    }
+
     if(appMode != REGISTRATION_MODE){
       break;
     }
@@ -715,6 +770,30 @@ void handleRegistrationMode(){
     if(websocketClient.available()) {
       websocketClient.poll();
     }
+
+    if(checkWebsocket()){
+      if(!websocketClient.available(true)){
+        printTextLCD("Websocket falied", 0);
+        printTextLCD("Reconnecting...", 1);
+        delay(500);
+        uint8_t c = 1;
+        while(c <= 5){
+          printTextLCD("Reconnect: " + String(c), 1);
+          unsigned long lcdTimeout = millis();
+          if(connectWebSocket()){
+            while((lcdTimeout + 500) > millis()){
+              delay(500);
+            }
+            printTextLCD("Connect successfully", 1);
+            break;
+          }
+          c++;
+        }
+        delay(500);
+        clearLCD();
+      }
+    }
+
     if(appMode != REGISTRATION_MODE){
       break;
     }
@@ -810,8 +889,12 @@ void handleUpdateMode(){
     printTextLCD("Connection failed", 0);
     printTextLCD("Connect new wifi", 1);
     while(appMode != SERVER_MODE){
+      if(WifiService.checkWifi()){
+        break;
+      }
+
       checkModeReset();
-      delay(50);
+      delay(10);
     }
     return;
   }
@@ -869,6 +952,30 @@ void handleUpdateMode(){
     if(websocketClient.available()) {
       websocketClient.poll();
     }
+
+    if(checkWebsocket()){
+      if(!websocketClient.available(true)){
+        printTextLCD("Websocket falied", 0);
+        printTextLCD("Reconnecting...", 1);
+        delay(500);
+        uint8_t c = 1;
+        while(c <= 5){
+          printTextLCD("Reconnect: " + String(c), 1);
+          unsigned long lcdTimeout = millis();
+          if(connectWebSocket()){
+            while((lcdTimeout + 500) > millis()){
+              delay(500);
+            }
+            printTextLCD("Connect successfully", 1);
+            break;
+          }
+          c++;
+        }
+        delay(500);
+        clearLCD();
+      }
+    }
+
     if(appMode != UPDATE_MODE){
       break;
     }
@@ -895,6 +1002,30 @@ void handleUpdateMode(){
     if(websocketClient.available()) {
       websocketClient.poll();
     }
+
+    if(checkWebsocket()){
+      if(!websocketClient.available(true)){
+        printTextLCD("Websocket falied", 0);
+        printTextLCD("Reconnecting...", 1);
+        delay(500);
+        uint8_t c = 1;
+        while(c <= 5){
+          printTextLCD("Reconnect: " + String(c), 1);
+          unsigned long lcdTimeout = millis();
+          if(connectWebSocket()){
+            while((lcdTimeout + 500) > millis()){
+              delay(500);
+            }
+            printTextLCD("Connect successfully", 1);
+            break;
+          }
+          c++;
+        }
+        delay(500);
+        clearLCD();
+      }
+    }
+
     if(appMode != UPDATE_MODE){
       break;
     }
@@ -913,6 +1044,30 @@ void handleUpdateMode(){
     if(websocketClient.available()) {
       websocketClient.poll();
     }
+
+    if(checkWebsocket()){
+      if(!websocketClient.available(true)){
+        printTextLCD("Websocket falied", 0);
+        printTextLCD("Reconnecting...", 1);
+        delay(500);
+        uint8_t c = 1;
+        while(c <= 5){
+          printTextLCD("Reconnect: " + String(c), 1);
+          unsigned long lcdTimeout = millis();
+          if(connectWebSocket()){
+            while((lcdTimeout + 500) > millis()){
+              delay(500);
+            }
+            printTextLCD("Connect successfully", 1);
+            break;
+          }
+          c++;
+        }
+        delay(500);
+        clearLCD();
+      }
+    }
+
     if(appMode != UPDATE_MODE){
       break;
     }
