@@ -451,6 +451,18 @@ bool connectWebSocket() {
         DateTime newDateTime(year, month, day, hour, min, sec);
         RTCService.setupDS1307DateTime(newDateTime);
       }
+      else if(event == "CheckInUse"){
+        if(schedules.size() > 0){
+          websocketClient.send(String("CheckInUse true"));
+          delay(50);
+          websocketClient.send(String("CheckInUse true"));
+        }
+        else{
+          websocketClient.send(String("CheckInUse"));
+          delay(50);
+          websocketClient.send(String("CheckInUse"));
+        }
+      }
     }
     else if(message.isBinary()){
       const char* data = message.c_str();
