@@ -21,12 +21,13 @@ be implemented using the WebSocket protocol to create a bi-directional communica
 
 ## Diagram
 ### Flowchart
-#### Fingerprint Collection Mode
+
 <a name="fingerprint-collection-mode-flowchart"></a>
+#### Fingerprint Collection Mode
 ![Fig. 0: Fingerprint Collection Mode Flowchart](https://github.com/khoaLe12/Public-Image/blob/main/fingerprint_collection_mode_flowchart.png)
 
-#### Attendance Mode
 <a name="attendance-mode-flowchart"></a>
+#### Attendance Mode
 ![Fig. 1: Attendance Mode Flowchart](https://github.com/khoaLe12/Public-Image/blob/main/attendance_mode_flowchart.png)
 
 
