@@ -18,4 +18,21 @@ be implemented using the WebSocket protocol to create a bi-directional communica
 2. In "attendance" mode, the module is used to take attendance by scanning fingerprints. The programming flowchart for this mode, shown in Fig \ref{fig:attendance_mode_flowchart}, details the logic handling process. To download fingerprint templates and schedule data from the server, we created a process that checks if it is a "preparation" event. During this event, the module downloads schedule details, including class, student information and their fingerprint data. To record and store attendance results, we developed a data structure that captures the relationships between objects: each schedule contains a list of attendance reports associated with students, and each student has a list of stored fingerprint IDs. The preparation process is monitored by the server, tracking its state and percentage of completion. Once the preparation is complete, the module can scan fingerprints to take attendance through the "authentication process." By utilizing date-time information from the RTC module, we determine if a schedule is ongoing by comparing its time frame with the current date and time. This ensures that the "authentication process" is only available during the designated time frame. When a student is successfully authenticated, the module records the attendance status and uploads it to the server.
 
 ## Diagram
+### Flowchart
+Fingerprint Collection Mode
+![File Structure](https://github.com/khoaLe12/Public-Image/blob/main/fingerprint_collection_mode_flowchart.png)
 
+Attendance Mode
+![File Structure](https://github.com/khoaLe12/Public-Image/blob/main/attendance_mode_flowchart.png)
+
+
+### Block Diagram
+![File Structure](https://github.com/khoaLe12/Public-Image/blob/main/iot_blockdiagram.png)
+
+
+### Circuit schematic/hardware interfacing
+![File Structure](https://github.com/khoaLe12/Public-Image/blob/main/iot_schematic.jpg)
+
+
+### Hardware System
+![File Structure](https://github.com/khoaLe12/Public-Image/blob/main/hardware_system.jpg)
